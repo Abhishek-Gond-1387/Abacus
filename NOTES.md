@@ -18,5 +18,5 @@
 
 ## Next
 
-- Day 4 completed: staged named files, reviewed the staged diff, and created the first local commit.
+- Day 4 completed: reviewed and committed the setup, then practiced a second one-line commit.
 - Day 5: make a first API call only after configuring credentials outside source code.
