@@ -2,7 +2,7 @@
 
 Abacus is a research prototype for checking precise claims about Python functions. It will search for candidate counterexamples and use trusted checks to decide what the evidence supports. A passing finite test run is not a proof of correctness.
 
-This repository contains the Day 1–3 setup and Python practice exercises, plus Day 21–37 review work from the 56-day build plan. The comparison review uses Hypothesis for bounded case generation.
+This repository contains the Day 1–3 setup and Python practice exercises, plus Day 21–38 review work from the 56-day build plan. The comparison review uses Hypothesis for bounded case generation.
 
 ## Run the exercises
 
@@ -150,3 +150,7 @@ Replay and validate those samples with:
 ## Day 36 sandbox design
 
 The trust-boundary decision and control checklist are in `practice/day36_sandbox_design.md`. Docker Desktop with Linux containers on WSL 2 is the conditional candidate. This machine currently has no Docker/Podman CLI and WSL is not installed, so generated-code execution remains disabled. Do not execute candidate code on the host if a container preflight or isolation control fails.
+
+## Day 38 untrusted execution gate
+
+`python -m abacus execute-untrusted SOURCE.py --input INPUT.json --allow-untrusted-code` is the only CLI path for candidate source. It also requires `ABACUS_UNTRUSTED_EXECUTION=1`, a Day 37 report with every probe passing, the exact recorded image ID and Docker version, and a matching Linux engine. The current Day 37 report is BLOCKED, so this command returns a structured `ERROR` before it reads the candidate files. It never falls back to host execution. Ordinary benchmark runs record `target.execution_origin: trusted_allowlist`; untrusted execution results are labeled `untrusted_sandbox` and include source/input hashes instead of source text or host paths.

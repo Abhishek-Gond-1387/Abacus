@@ -25,6 +25,7 @@ class RunViewTests(unittest.TestCase):
             view = render_run_summary(record, record_path=path)
 
         self.assertIn("Outcome: TESTS_PASSED", view)
+        self.assertIn("Target execution origin: trusted_allowlist", view)
         self.assertIn(TESTS_PASSED_NOTE, view)
         self.assertIn("MODEL INPUT (unverified; not harness evidence)", view)
         self.assertIn("HARNESS EVIDENCE (executed by code)", view)

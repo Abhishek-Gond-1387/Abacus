@@ -39,6 +39,7 @@ class Day27PipelineTests(unittest.TestCase):
         self.assertTrue(all(not item["applied_as_fact"] for item in saved["model"]["plan_suggestions"]))
         self.assertTrue(saved["problem"]["dataset_sha256"])
         self.assertTrue(saved["target"]["code_sha256"])
+        self.assertEqual(saved["target"]["execution_origin"], "trusted_allowlist")
         self.assertEqual(saved["budget"]["usage"]["model_calls"], 0)
         usage = saved["usage"]
         self.assertEqual(usage["resource_usage_version"], 1)

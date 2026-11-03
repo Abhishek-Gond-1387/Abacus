@@ -90,6 +90,11 @@ def render_run_summary(
 
     lines.extend(("RUN SUMMARY", f"Run ID: {_display(safe_record.get('run_id', 'unknown'))}"))
     lines.append(f"Problem: {_display(problem.get('problem_id', 'unknown'))}")
+    target = _mapping(safe_record.get("target"))
+    lines.append(
+        "Target execution origin: "
+        + _display(target.get("execution_origin", "trusted_allowlist (legacy record)"))
+    )
     lines.append(f"Run status: {_display(safe_record.get('run_status', completion.get('status', 'unknown')))}")
     lines.extend(("", "CLAIM AND CONTRACT"))
     lines.append(f"Original claim: {_display(problem.get('original_claim', 'not recorded'))}")

@@ -163,6 +163,8 @@ def verify_image(image_details):
     errors = []
     if labels.get("org.abacus.day37") != "fixed-purpose-sandbox-probes":
         errors.append("fixed-probe image label is missing")
+    if labels.get("org.abacus.executor") != "python-json-v2":
+        errors.append("bounded JSON executor image label is missing")
     if not re.fullmatch(r"python@sha256:[0-9a-f]{64}", base_image):
         errors.append("base image is not an immutable Python repository digest")
     if config.get("Entrypoint") != ["python", "/opt/abacus/probe.py"]:

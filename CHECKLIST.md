@@ -157,3 +157,13 @@
 - [ ] Build the image and record the exact image/runtime versions.
 - [ ] Run host-file, network, privilege/device, process-count, memory, file-size, rootfs-write, wall-time, output-size, and cleanup probes.
 - [ ] Confirm resource-control metadata and observed limits; keep untrusted execution disabled until all probes pass.
+
+## Day 38 — Route untrusted execution through the sandbox
+
+- [x] Add a distinct `abacus/sandbox.py` interface; keep the existing allowlisted benchmark path separate.
+- [x] Add `execute-untrusted` CLI with a required explicit opt-in and a second environment opt-in.
+- [x] Require the Day 37 PASS report, matching runtime version and exact image ID, and inspect container controls before start.
+- [x] Return a structured error on missing runtime, startup failure, invalid result, timeout, output overflow, or cleanup failure; never run candidate code on the host as fallback.
+- [x] Label trusted benchmark targets and untrusted sandbox requests in execution records; omit source text and host file paths.
+- [x] Add tests for missing runtime, blocked verification, CLI opt-in, nonzero container startup, cleanup, and no host fallback.
+- [ ] Run an actual candidate only after Day 37 image and isolation probes pass.

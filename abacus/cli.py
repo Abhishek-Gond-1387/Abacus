@@ -6,6 +6,7 @@ import argparse
 import hashlib
 import inspect
 import json
+import os
 import platform
 import re
 import subprocess
@@ -35,6 +36,7 @@ from practice.run_records import (
 )
 from practice.usage_metrics import PricingConfig, calculate_actual_cost_usd, summarize_run_usage
 from practice.run_view import render_run_summary
+from abacus.sandbox import EXECUTION_FLAG, MAX_INPUT_BYTES, MAX_SOURCE_BYTES, SandboxError, SandboxRunner
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -462,6 +464,7 @@ def _runner_code_sha256() -> str:
     digest = hashlib.sha256()
     for path in (
         Path(__file__),
+        Path(__file__).with_name("sandbox.py"),
         PROJECT_ROOT / "practice" / "run_records.py",
         PROJECT_ROOT / "practice" / "decision.py",
         PROJECT_ROOT / "practice" / "outcomes.py",
@@ -806,6 +809,7 @@ def run_problem(
             "id": spec.target_id,
             "code_sha256": _sha256_text(inspect.getsource(TARGETS[spec.target_id])),
             "runner_code_sha256": _runner_code_sha256(),
+            "execution_origin": "trusted_allowlist",
         },
         "provenance": {
             "git_revision": git_revision,
@@ -935,6 +939,7 @@ def _emergency_error_record(
             "id": spec.target_id,
             "code_sha256": _sha256_text(inspect.getsource(TARGETS[spec.target_id])),
             "runner_code_sha256": _runner_code_sha256(),
+            "execution_origin": "trusted_allowlist",
         },
         "provenance": {
             "git_revision": git_revision,
@@ -1258,6 +1263,98 @@ def _emergency_error_record(
     return record
 
 
+def _sandbox_error_record(
+    execution_id: str,
+    started_at: datetime,
+    reason: str,
+    *,
+    source_sha256: str | None = None,
+    input_sha256: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "execution_id": execution_id,
+        "started_at_utc": started_at.isoformat(),
+        "execution_origin": "untrusted_sandbox",
+        "outcome": "ERROR",
+        "reason": reason,
+        "source_sha256": source_sha256,
+        "input_sha256": input_sha256,
+    }
+
+
+def _read_bounded_file(path: str, limit: int, reason: str) -> bytes:
+    try:
+        with Path(path).open("rb") as handle:
+            contents = handle.read(limit + 1)
+    except OSError as error:
+        raise SandboxError(reason) from error
+    if len(contents) > limit:
+        raise SandboxError(reason)
+    return contents
+
+
+def _reject_nonstandard_json(constant: str) -> None:
+    raise ValueError(f"Non-standard JSON number: {constant}")
+
+
+def _execute_untrusted_cli(args: argparse.Namespace) -> int:
+    execution_id = str(uuid4())
+    started_at = datetime.now(timezone.utc)
+
+    source_sha256 = None
+    input_sha256 = None
+
+    def fail(reason: str) -> int:
+        error_record = _sandbox_error_record(
+            execution_id,
+            started_at,
+            reason,
+            source_sha256=source_sha256,
+            input_sha256=input_sha256,
+        )
+        print(json.dumps(error_record, ensure_ascii=False))
+        return 1
+
+    if not args.allow_untrusted_code:
+        return fail("explicit_opt_in_required")
+    if os.environ.get(EXECUTION_FLAG) != "1":
+        return fail("execution_flag_disabled")
+
+    runner = SandboxRunner()
+    try:
+        # Check Day 37's verification receipt before opening candidate files.
+        runner.preflight(explicit_opt_in=True)
+        source_bytes = _read_bounded_file(args.source_file, MAX_SOURCE_BYTES, "source_file_unavailable_or_too_large")
+        input_bytes = _read_bounded_file(args.input_file, MAX_INPUT_BYTES, "input_file_unavailable_or_too_large")
+        source = source_bytes.decode("utf-8")
+        value = json.loads(input_bytes.decode("utf-8"), parse_constant=_reject_nonstandard_json)
+        canonical_input = json.dumps(value, sort_keys=True, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
+        source_sha256 = hashlib.sha256(source_bytes).hexdigest()
+        input_sha256 = hashlib.sha256(canonical_input.encode("utf-8")).hexdigest()
+        sandbox_result = runner.execute(source, value, explicit_opt_in=True)
+    except SandboxError as error:
+        return fail(error.reason)
+    except (UnicodeError, json.JSONDecodeError, ValueError, RecursionError):
+        return fail("source_or_input_invalid")
+    except Exception:
+        return fail("sandbox_internal_error")
+
+    result_record = {
+        "execution_id": execution_id,
+        "started_at_utc": started_at.isoformat(),
+        "execution_origin": "untrusted_sandbox",
+        "outcome": "COMPLETED",
+        "reason": "candidate_returned_json",
+        "source_sha256": source_sha256,
+        "input_sha256": input_sha256,
+        "runtime_version": sandbox_result["runtime_version"],
+        "image_id": sandbox_result["image_id"],
+        "result": sandbox_result["result"],
+    }
+    print(json.dumps(result_record, ensure_ascii=False, allow_nan=False))
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m abacus")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -1266,6 +1363,17 @@ def main(argv: list[str] | None = None) -> int:
     run_parser.add_argument(
         "--output",
         help="exact run-log path (default: unique timestamp+UUID under runs/); existing files are never overwritten",
+    )
+    untrusted_parser = subparsers.add_parser(
+        "execute-untrusted",
+        help="run a candidate(value) function only through the verified container sandbox",
+    )
+    untrusted_parser.add_argument("source_file", help="UTF-8 Python source defining candidate(value)")
+    untrusted_parser.add_argument("--input", dest="input_file", required=True, help="UTF-8 JSON input file")
+    untrusted_parser.add_argument(
+        "--allow-untrusted-code",
+        action="store_true",
+        help="explicitly opt in; ABACUS_UNTRUSTED_EXECUTION=1 is also required",
     )
     list_parser = subparsers.add_parser("list-runs", help="list saved runs and interrupted-save markers")
     list_parser.add_argument("problem_id", nargs="?", help="optionally filter by problem ID")
@@ -1322,6 +1430,8 @@ def main(argv: list[str] | None = None) -> int:
         summary["invalid_file_count"] = len(entries["invalid_files"])
         print(json.dumps(summary, indent=2, ensure_ascii=False))
         return 0
+    if args.command == "execute-untrusted":
+        return _execute_untrusted_cli(args)
 
     try:
         spec = load_problem(args.problem)

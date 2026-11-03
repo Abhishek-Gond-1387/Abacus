@@ -1,6 +1,6 @@
 # Day 37 fixed-purpose sandbox probes
 
-This folder contains a minimal Python standard-library image and a host-side verifier for the Day 36 controls. The container only dispatches nine fixed, harmless probes. It never evaluates source code, and it is not yet connected to Abacus candidate execution.
+This folder contains a minimal Python standard-library image and a host-side verifier for the Day 36 controls. The probe entrypoint dispatches nine fixed, harmless probes and never evaluates source. The image also includes a separate JSON executor used by the Day 38 CLI path; that entrypoint is allowed only after every Day 37 probe passes and both explicit opt-ins are present.
 
 ## Build and verify
 
@@ -11,7 +11,7 @@ powershell -ExecutionPolicy Bypass -File sandbox/day37/build.ps1
 python sandbox/day37/verify.py
 ```
 
-The verification report is written to `practice/day37_sandbox_verification.md`. A missing runtime or any configuration mismatch stops the run before the probe starts. No generated-code execution flag is enabled by this work.
+The verification report is written to `practice/day37_sandbox_verification.md`. A missing runtime or any configuration mismatch stops the run before the probe starts. The Day 38 CLI executor remains unavailable until this report passes and both explicit opt-ins are present.
 
 ## Boundary
 

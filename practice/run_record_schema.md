@@ -7,7 +7,7 @@
 | Section | Stored information |
 |---|---|
 | `problem` | Problem ID, dataset version, dataset SHA-256, problem-spec SHA-256, original claim, and input contract. The dataset body stores fixed inputs, proposal fixtures, and Hypothesis settings so its hash can be recomputed. |
-| `target` | Allowlisted target ID, target-source SHA-256, and runner-source SHA-256. |
+| `target` | Allowlisted target ID, target-source SHA-256, runner-source SHA-256, and `execution_origin` (`trusted_allowlist` for normal benchmark runs). |
 | `provenance` | Git revision and dirty state, Python/platform/Hypothesis/Abacus versions. Unknown Git revision is represented by `null` and explained in `unknown_values`. |
 | `model` | Provider/model IDs, whether a provider API was called, plan/proposal/revision template versions, and suggestion/proposal status. This pilot records fixture sources and no provider calls. |
 | `generation` | Methods, seeds, settings and budgets, scheduled/generated/validated counts, and per-method counts. |

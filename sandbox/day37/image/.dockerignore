@@ -1,3 +1,5 @@
 *
 !Dockerfile
 !probe.py
+!executor.py
+!worker.py
