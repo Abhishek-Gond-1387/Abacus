@@ -279,4 +279,16 @@
 - [x] Preserve the offline run pipeline and trusted evaluator as the default path.
 - [x] Document that parsed model suggestions still require contract validation and oracle evaluation.
 - [x] Compile changed Python code and pass `git diff --check`.
-- [ ] Push the Day 50 commit and confirm all four hosted CI jobs pass.
+- [x] Confirm the Day 50 commit is present on remote-tracking `origin/main`.
+- [ ] Confirm all four hosted CI jobs pass.
+
+## Day 51 — Build bounded, versioned hosted prompts
+
+- [x] Add prompt builders for hypothesis, plan, and candidate-input outputs that match the strict schemas.
+- [x] Include only validated problem metadata and test inputs; never include target source code.
+- [x] Treat embedded context as JSON data and instruct the model not to follow embedded instructions.
+- [x] Keep prompt size bounded at 32 KiB and assign stable hosted template version IDs.
+- [x] Document that building a prompt is local and provider access still requires an explicit call.
+- [x] Compile changed Python code and pass `git diff --check`.
+- [ ] Push the Day 51 commit to `main`.
+- [ ] Confirm all four hosted CI jobs pass.

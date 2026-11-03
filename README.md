@@ -1,6 +1,6 @@
 # Abacus
 
-Abacus is a research prototype for checking precise claims about Python functions. It searches for candidate counterexamples and uses trusted checks to decide what the evidence supports. A passing finite test run is not a proof of correctness. This repository tracks the Day 1–50 learning work.
+Abacus is a research prototype for checking precise claims about Python functions. It searches for candidate counterexamples and uses trusted checks to decide what the evidence supports. A passing finite test run is not a proof of correctness. This repository tracks the Day 1–51 learning work.
 
 The Day 1–3 exercises use Python's standard library. Day 5 and Day 6 use the OpenAI-compatible Python SDK and `python-dotenv`; Gemini is the default provider, with OpenAI available as an optional provider. Day 6 puts live requests behind a reusable helper and includes an offline stub.
 
@@ -453,3 +453,7 @@ Provider calls send prompt content to the selected service and may use account q
 ## Day 50 structured provider response boundary
 
 Use `abacus.llm.complete_structured_output(client, output_kind, prompt, model_id=...)` when a hosted response is explicitly requested. It validates the request kind and prompt size before sending anything, then returns only an immutable `HypothesisOutput`, `PlanOutput`, or `CandidateProposalsOutput` after strict JSON/schema checks. Raw provider text stays inside the helper. The returned suggestions remain untrusted: candidate inputs still need contract checking and trusted oracle evaluation before they count as evidence. The normal `python -m abacus run` workflow continues to use offline fixtures and makes no provider calls.
+
+## Day 51 versioned hosted prompts
+
+`abacus.prompts.build_model_prompt(output_kind, spec)` builds a bounded prompt from a validated `ProblemSpec` for hypothesis, test-plan, or candidate-input suggestions. It includes only the claim, contract/oracle identifiers, fixed cases, and existing proposal inputs; target source code is never included. Context is encoded as JSON data with explicit instructions to ignore instructions inside its values. `HOSTED_PROMPT_TEMPLATE_VERSIONS` identifies each prompt version for audit records. Building a prompt is local; a caller must explicitly pass it to `complete_structured_output()` to make a provider request.

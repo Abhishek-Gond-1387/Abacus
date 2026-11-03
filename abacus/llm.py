@@ -7,6 +7,7 @@ import os
 from pathlib import Path
 from typing import Any, Protocol
 
+from .prompts import MAX_MODEL_PROMPT_BYTES
 from .schemas import (
     MAX_MODEL_OUTPUT_BYTES,
     CandidateProposalsOutput,
@@ -21,7 +22,6 @@ from .schemas import (
 DEFAULT_TIMEOUT_SECONDS = 20.0
 MAX_TIMEOUT_SECONDS = 120.0
 MAX_OUTPUT_TOKENS = 1_024
-MAX_PROMPT_BYTES = 32 * 1024
 GEMINI_OPENAI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
 
 
@@ -78,8 +78,8 @@ def _validate_prompt(prompt: str) -> None:
         prompt_size = len(prompt.encode("utf-8"))
     except UnicodeEncodeError:
         raise ValueError("prompt must be valid UTF-8 text") from None
-    if prompt_size > MAX_PROMPT_BYTES:
-        raise ValueError(f"prompt exceeds the {MAX_PROMPT_BYTES}-byte limit")
+    if prompt_size > MAX_MODEL_PROMPT_BYTES:
+        raise ValueError(f"prompt exceeds the {MAX_MODEL_PROMPT_BYTES}-byte limit")
 
 
 def _validate_model_id(model_id: str) -> None:
