@@ -45,3 +45,11 @@
 - Tested the correct candidate on empty, single-item, duplicate, negative, and already-sorted lists. The reverse-sort candidate fails on the Day 8 witness `[1, 2]`; an in-place sort also fails the no-mutation rule.
 - Limits: this covers finite lists of built-in integers and one input per check. It does not prove a universal claim, execute record code, or sandbox untrusted targets.
 - Next: Day 10 — make input-domain and precondition validation explicit before running a target.
+
+## Day 10 — Validate inputs and preconditions
+
+- Added machine-checkable precondition IDs to both sorting problem records and registered their meaning against `sorted-integer-list-v1`.
+- Added `validate_input(problem, input_value)`. It checks the record's oracle/domain/preconditions and returns `VALID` or `OUTSIDE_CONTRACT` with a reason.
+- The fixed edge-case generator and sorting oracle share `validate_input`. The oracle skips the target for out-of-contract inputs and records `OUTSIDE_CONTRACT` separately from `REFUTED` and target `ERROR`.
+- Added valid and invalid input fixtures. Tests confirm valid edge cases stay in contract, invalid values never call the target or become `REFUTED`, and target exceptions remain `ERROR`.
+- Next: Day 11 — run trusted code in a child process and classify exits, exceptions, timeouts, and bounded output.

@@ -11,7 +11,7 @@ The validator is implemented in `src/abacus/problems.py` using only the Python s
 | `claim` | non-empty string | Yes | Original claim, kept verbatim as the record's canonical claim. Do not replace it with a later model interpretation. |
 | `code` | non-empty string | Yes | Candidate Python source, stored but not executed by the loader. |
 | `domain` | object | Yes | Requires non-empty `input_type`, `output_type`, and `description` strings. |
-| `preconditions` | array of non-empty strings | Yes | May be empty when there are no additional preconditions. |
+| `preconditions` | array of non-empty strings | Yes | Contract-specific predicate identifiers; the sorting records use `input_is_list` and `elements_are_exact_ints`. |
 | `property_description` | non-empty string | Yes | Plain-language statement of the property to check. |
 | `oracle_id` | non-empty string | Yes | Identifier reserved for the trusted reference/checker. |
 | `expected_label` | `TRUE` or `FALSE` | Yes | Hand-authored truth label for the claim about the supplied code. |
@@ -20,6 +20,8 @@ The validator is implemented in `src/abacus/problems.py` using only the Python s
 | `known_counterexample` | object or `null` | Required for `FALSE` | A false claim requires `input`, `expected_output`, and `actual_output`; optional `reason` explains the witness. A true claim omits this field or sets it to `null`. |
 
 Unknown top-level fields, unknown `domain` fields, and unknown counterexample fields are rejected so typos do not silently change the record.
+
+`src/abacus/contracts.py` maps the sorting oracle ID and these predicate identifiers to executable checks. The record's `domain.input_type` must also match the registered contract. The target oracle and the fixed example generator both call `validate_input`, so they share one domain definition.
 
 ## Validate records
 

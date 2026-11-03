@@ -4,39 +4,59 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from enum import Enum
 from typing import Any
 
+from .contracts import (
+    SORTED_INTEGER_LIST_ORACLE_ID,
+    validate_input,
+)
 
-SORTED_INTEGER_LIST_ORACLE_ID = "sorted-integer-list-v1"
+
+class CheckStatus(str, Enum):
+    PASSED = "PASSED"
+    REFUTED = "REFUTED"
+    OUTSIDE_CONTRACT = "OUTSIDE_CONTRACT"
+    ERROR = "ERROR"
 
 
 @dataclass(frozen=True)
 class PropertyCheck:
     """Result of checking one input against the sorting property."""
 
-    passed: bool
-    expected_output: tuple[int, ...]
+    status: CheckStatus
+    expected_output: tuple[int, ...] | None
     actual_output: Any
-    input_unchanged: bool
+    input_unchanged: bool | None
     reason: str | None = None
+
+    @property
+    def passed(self) -> bool:
+        return self.status is CheckStatus.PASSED
 
 
 def check_sorted_integer_list(
-    candidate: Callable[[list[int]], Any], values: list[int]
+    candidate: Callable[[list[int]], Any], values: Any, problem: Any
 ) -> PropertyCheck:
-    """Check one candidate result against Python's trusted ``sorted`` reference.
+    """Validate input, then check one candidate against Python's ``sorted``.
 
-    Inputs must be lists of exact built-in integers; booleans are excluded even
-    though ``bool`` is a subclass of ``int``. The candidate must return a list
-    of exact integers in ascending order and leave the input list unchanged.
+    Contract violations return ``OUTSIDE_CONTRACT`` without calling the
+    candidate. Valid inputs require a list of exact built-in integers; the
+    candidate must return such a list in ascending order and leave input intact.
     """
+
+    validation = validate_input(problem, values)
+    if not validation.valid:
+        return PropertyCheck(
+            status=CheckStatus.OUTSIDE_CONTRACT,
+            expected_output=None,
+            actual_output=None,
+            input_unchanged=None,
+            reason=validation.reason,
+        )
 
     if not callable(candidate):
         raise TypeError("candidate must be callable")
-    if not isinstance(values, list) or any(
-        type(value) is not int for value in values
-    ):
-        raise TypeError("values must be a list of integers; booleans are excluded")
 
     original = tuple(values)
     expected = tuple(sorted(values))
@@ -49,7 +69,7 @@ def check_sorted_integer_list(
         if not unchanged:
             reason += " and mutated the input list"
         return PropertyCheck(
-            passed=False,
+            status=CheckStatus.ERROR,
             expected_output=expected,
             actual_output=None,
             input_unchanged=unchanged,
@@ -59,7 +79,7 @@ def check_sorted_integer_list(
     unchanged = tuple(values) == original
     if not unchanged:
         return PropertyCheck(
-            passed=False,
+            status=CheckStatus.REFUTED,
             expected_output=expected,
             actual_output=actual,
             input_unchanged=False,
@@ -67,7 +87,7 @@ def check_sorted_integer_list(
         )
     if not isinstance(actual, list):
         return PropertyCheck(
-            passed=False,
+            status=CheckStatus.REFUTED,
             expected_output=expected,
             actual_output=actual,
             input_unchanged=True,
@@ -75,7 +95,7 @@ def check_sorted_integer_list(
         )
     if any(type(value) is not int for value in actual):
         return PropertyCheck(
-            passed=False,
+            status=CheckStatus.REFUTED,
             expected_output=expected,
             actual_output=actual,
             input_unchanged=True,
@@ -83,7 +103,7 @@ def check_sorted_integer_list(
         )
     if tuple(actual) != expected:
         return PropertyCheck(
-            passed=False,
+            status=CheckStatus.REFUTED,
             expected_output=expected,
             actual_output=actual,
             input_unchanged=True,
@@ -91,7 +111,7 @@ def check_sorted_integer_list(
         )
 
     return PropertyCheck(
-        passed=True,
+        status=CheckStatus.PASSED,
         expected_output=expected,
         actual_output=actual,
         input_unchanged=True,

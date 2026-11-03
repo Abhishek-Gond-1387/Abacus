@@ -73,3 +73,9 @@ Run the correct/faulty candidate and edge-case checks with:
 ```powershell
 .\.venv\Scripts\python.exe -m unittest discover -s tests
 ```
+
+## Day 10: input contracts
+
+`abacus.contracts.validate_input(problem, input_value)` checks a problem's registered domain and predicate identifiers before target evaluation. The sorting problem requires a Python list containing exact built-in integers; booleans are excluded, and empty lists, duplicates, and negative integers are valid. The fixed edge-case generator and sorting oracle both call the same validator.
+
+The oracle result has separate `PASSED`, `REFUTED`, `OUTSIDE_CONTRACT`, and `ERROR` statuses. It does not call the target when the input is outside its contract, so invalid inputs cannot be reported as `REFUTED`.
