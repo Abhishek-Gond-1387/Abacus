@@ -23,10 +23,16 @@ from practice.budgets import BudgetConfig, BudgetTracker
 from practice.decision import ClaimContract, decide
 from practice.outcomes import FinalOutcome
 from practice.revisions import ClaimRevision, RevisionTriggerEvidence
-from practice.run_records import RUN_RECORD_SCHEMA_VERSION, save_run_record
+from practice.run_records import (
+    RUN_RECORD_SCHEMA_VERSION,
+    find_run_record,
+    list_run_records,
+    save_run_record,
+)
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+RUNS_DIR = PROJECT_ROOT / "runs"
 
 
 class ProblemValidationError(ValueError):
@@ -452,6 +458,16 @@ def _scheduled_count(spec: ProblemSpec) -> int:
     return len(spec.fixed_cases) + spec.hypothesis["max_examples"] + len(spec.proposals)
 
 
+def _default_run_path(
+    problem_id: str,
+    run_id: str,
+    started_at: datetime,
+    runs_dir: str | Path = RUNS_DIR,
+) -> Path:
+    timestamp = started_at.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
+    return Path(runs_dir) / f"{problem_id}_{timestamp}_{run_id}.json"
+
+
 def _model_proposal_records(spec: ProblemSpec, *, evaluated: bool) -> list[dict[str, Any]]:
     return [
         {
@@ -466,7 +482,12 @@ def _model_proposal_records(spec: ProblemSpec, *, evaluated: bool) -> list[dict[
     ]
 
 
-def run_problem(spec: ProblemSpec, log_path: str | Path) -> dict[str, Any]:
+def run_problem(
+    spec: ProblemSpec,
+    log_path: str | Path | None = None,
+    *,
+    runs_dir: str | Path = RUNS_DIR,
+) -> dict[str, Any]:
     """Run fixed, Hypothesis, and proposal evidence and always save the run log."""
     started_at = datetime.now(timezone.utc)
     started_clock = time.perf_counter()
@@ -713,7 +734,11 @@ def run_problem(spec: ProblemSpec, log_path: str | Path) -> dict[str, Any]:
         "errors": errors,
         "unknown_values": unknown_values,
     }
-    destination = Path(log_path)
+    destination = (
+        Path(log_path)
+        if log_path is not None
+        else _default_run_path(spec.problem_id, run_id, started_at, runs_dir)
+    )
     save_run_record(destination, record_schema)
     run_record = record_schema
     run_record["log_path"] = str(destination)
@@ -857,8 +882,31 @@ def main(argv: list[str] | None = None) -> int:
     subparsers = parser.add_subparsers(dest="command", required=True)
     run_parser = subparsers.add_parser("run", help="run one JSON problem through the local evidence pipeline")
     run_parser.add_argument("problem", help="path to a validated problem JSON file")
-    run_parser.add_argument("--output", help="run log path (default: runs/<problem_id>.json)")
+    run_parser.add_argument(
+        "--output",
+        help="exact run-log path (default: unique timestamp+UUID under runs/); existing files are never overwritten",
+    )
+    list_parser = subparsers.add_parser("list-runs", help="list saved runs and interrupted-save markers")
+    list_parser.add_argument("problem_id", nargs="?", help="optionally filter by problem ID")
+    list_parser.add_argument("--runs-dir", type=Path, default=RUNS_DIR)
+    show_parser = subparsers.add_parser("show-run", help="open one saved run record by run ID")
+    show_parser.add_argument("run_id", help="UUID from list-runs")
+    show_parser.add_argument("--runs-dir", type=Path, default=RUNS_DIR)
     args = parser.parse_args(argv)
+
+    if args.command == "list-runs":
+        print(json.dumps(list_run_records(args.runs_dir, problem_id=args.problem_id), indent=2, ensure_ascii=False))
+        return 0
+    if args.command == "show-run":
+        record = find_run_record(args.runs_dir, args.run_id)
+        if record is None:
+            print(f"Run ID not found: {args.run_id}", file=sys.stderr)
+            return 2
+        if "incomplete_marker" in record:
+            print(json.dumps(record, indent=2, ensure_ascii=False))
+            return 1
+        print(json.dumps(record, indent=2, ensure_ascii=False))
+        return 0
 
     try:
         spec = load_problem(args.problem)
@@ -866,12 +914,11 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Problem validation failed: {error}", file=sys.stderr)
         return 2
 
-    default_log = PROJECT_ROOT / "runs" / f"{spec.problem_id}.json"
-    log_path = Path(args.output) if args.output else default_log
+    requested_log_path = Path(args.output) if args.output else None
     pipeline_started_at = datetime.now(timezone.utc)
     pipeline_started_clock = time.perf_counter()
     try:
-        record = run_problem(spec, log_path)
+        record = run_problem(spec, requested_log_path)
     except Exception as error:
         failure = _emergency_error_record(
             spec,
@@ -879,6 +926,13 @@ def main(argv: list[str] | None = None) -> int:
             started_at=pipeline_started_at,
             duration_seconds=round(time.perf_counter() - pipeline_started_clock, 6),
         )
+        log_path = requested_log_path
+        if log_path is None or log_path.exists():
+            log_path = _default_run_path(
+                spec.problem_id,
+                failure["run_id"],
+                pipeline_started_at,
+            )
         save_run_record(log_path, failure)
         print(json.dumps(failure, indent=2, ensure_ascii=False))
         print(f"Saved error log: {log_path}", file=sys.stderr)

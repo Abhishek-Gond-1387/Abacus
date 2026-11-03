@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .outcomes import FinalOutcome, OutcomeReason, RunOutcome
-from .run_records import RUN_RECORD_SCHEMA_VERSION, save_run_record
+from .run_records import RUN_RECORD_SCHEMA_VERSION, load_run_record, save_run_record
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -189,7 +189,12 @@ def main() -> None:
         ("run_complete.v2.json", complete_sample()),
         ("run_partial.v2.json", partial_sample()),
     ):
-        destination = save_run_record(SAMPLE_DIR / name, record)
+        destination = SAMPLE_DIR / name
+        if destination.exists():
+            if load_run_record(destination) != record:
+                raise FileExistsError(f"Refusing to replace a different sample run record: {destination}")
+        else:
+            save_run_record(destination, record)
         print(destination)
 
 

@@ -2,7 +2,7 @@
 
 Abacus is a research prototype for checking precise claims about Python functions. It will search for candidate counterexamples and use trusted checks to decide what the evidence supports. A passing finite test run is not a proof of correctness.
 
-This repository contains the Day 1–3 setup and Python practice exercises, plus Day 21–29 review work from the 56-day build plan. The comparison review uses Hypothesis for bounded case generation.
+This repository contains the Day 1–3 setup and Python practice exercises, plus Day 21–30 review work from the 56-day build plan. The comparison review uses Hypothesis for bounded case generation.
 
 ## Run the exercises
 
@@ -97,3 +97,14 @@ The run-level meanings and annotated examples for REFUTED, TESTS_PASSED, UNRESOL
 ## Day 29 versioned run records
 
 New CLI runs use schema version 2, including run UUID, dataset/version and code hashes, claim/contract, generation settings and seeds, proposals/candidates, oracle/replay evidence, outcome references, software/Git provenance, and usage/budget fields. See practice/run_record_schema.md. Regenerate the validated complete/partial examples with `python -m practice.day29_record_examples`; validate fixtures with `python -m unittest practice.test_run_records`.
+
+## Day 30 unique run storage
+
+Each default run gets a timestamp-plus-UUID filename in `runs/`; that directory is ignored by Git. Saves validate first, write and flush a same-directory temporary file, then rename it into place. An `.incomplete` sidecar records the run ID and temporary path if a save is interrupted. Existing destination files are never overwritten.
+
+List saved runs or filter by problem, then inspect one by its run ID:
+
+    .\.venv\Scripts\python.exe -m abacus list-runs
+    .\.venv\Scripts\python.exe -m abacus list-runs p01_true_sort
+    .\.venv\Scripts\python.exe -m abacus show-run <RUN_ID>
+    .\.venv\Scripts\python.exe -m unittest practice.test_run_storage

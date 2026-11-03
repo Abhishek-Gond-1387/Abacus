@@ -19,7 +19,7 @@
 ## Next
 
 - Day 4 completed: staged named files, reviewed the staged diff, and created the first local commit.
-- Day 29 completed; Day 30: save runs atomically and uniquely.
+- Day 30 completed; Day 31: prevent secret leakage in logs.
 
 ## Day 21 review
 
@@ -72,3 +72,9 @@ Open design questions for later work: should rejected problem files produce a di
 Added schema version 2 and validation before every CLI run record is saved. Records now carry a UUID; problem/dataset versions and hashes; original claim and contract; target and runner code hashes; Git/software versions; template/provider/model identity; generation methods, seeds, and settings; proposal fixtures; validated inputs; oracle outputs and replay details; outcome reason and evidence references; revision data; and duration, token, cost, call, budget, and error fields. Unknown provenance/usage is explicit rather than silently treated as zero.
 
 Generated and validated one complete sample plus one partial UNRESOLVED sample. The validator rejects a missing dataset version, outcome reason, or evidence reference, and accepts a partial run only with a stated incomplete status/reason. Day 27's previous records are schema-v1 examples; new runs write v2. Run filenames still use the problem ID and can be overwritten; Day 30 will make filenames unique. The Day 28 question about uniform error records is addressed for caught/unexpected pipeline failures; process termination before the save step remains an open recovery case.
+
+## Day 30 atomic, unique run storage
+
+Default run filenames now include the problem ID, UTC timestamp, and UUID. The existing `runs/` Git ignore rule was confirmed. `save_run_record()` refuses an existing destination, writes and syncs a same-directory temporary file, renames it to the final path, then removes the `.incomplete` marker. The marker records run ID, final filename, temporary filename, and start time while a save is in progress, so interruption leaves recoverable state beside any partial file.
+
+Added `list-runs` and `show-run <run_id>` commands. Repeated-run fixtures create two independently valid files for the same problem; interrupted-rename simulation leaves the marker and temporary file available for inspection. A caller-supplied `--output` path is also protected from overwrite. Directory fsync is skipped on Windows; file contents are flushed and synced before rename.

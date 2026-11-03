@@ -5,10 +5,11 @@ from __future__ import annotations
 import json
 import hashlib
 import math
+import os
 import re
 from datetime import datetime
 from pathlib import Path
-from uuid import UUID
+from uuid import UUID, uuid4
 from typing import Any
 
 
@@ -343,14 +344,71 @@ def validate_run_record(record: Any) -> dict[str, Any]:
 
 
 def save_run_record(path: str | Path, record: dict[str, Any]) -> Path:
-    """Validate a record before writing it as JSON."""
+    """Validate and atomically save without replacing an earlier run.
+
+    The incomplete marker is installed before the temporary record is created.
+    If the process stops mid-write, the marker and any temporary bytes remain
+    beside the destination and describe how far the save got.
+    """
     validated = validate_run_record(record)
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
-    temporary = destination.with_name(destination.name + ".tmp")
-    temporary.write_text(json.dumps(validated, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-    temporary.replace(destination)
+    marker = destination.with_name(destination.name + ".incomplete")
+    run_id = validated["run_id"]
+    nonce = uuid4().hex
+    temporary = destination.with_name(f".{destination.name}.{run_id}.{nonce}.tmp")
+    if destination.exists():
+        raise FileExistsError(f"Run record already exists; refusing to overwrite it: {destination}")
+    if marker.exists():
+        raise FileExistsError(f"An incomplete marker already exists for this path: {marker}")
+
+    marker_payload = {
+        "marker_version": 1,
+        "run_id": run_id,
+        "problem_id": validated["problem"]["problem_id"],
+        "state": "writing",
+        "final_path": destination.name,
+        "temporary_path": temporary.name,
+        "started_at_utc": validated["timestamps"]["started_at_utc"],
+    }
+    _write_fsynced_exclusive(marker, json.dumps(marker_payload, separators=(",", ":")) + "\n")
+    _fsync_directory(destination.parent)
+
+    try:
+        descriptor = os.open(destination, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+        os.close(descriptor)
+    except Exception:
+        marker.unlink(missing_ok=True)
+        raise
+
+    content = json.dumps(validated, indent=2, ensure_ascii=False, allow_nan=False) + "\n"
+    _write_fsynced_exclusive(temporary, content)
+    os.replace(temporary, destination)
+    _fsync_directory(destination.parent)
+    marker.unlink()
+    _fsync_directory(destination.parent)
     return destination
+
+
+def _write_fsynced_exclusive(path: Path, content: str) -> None:
+    with path.open("x", encoding="utf-8", newline="\n") as handle:
+        handle.write(content)
+        handle.flush()
+        os.fsync(handle.fileno())
+
+
+def _fsync_directory(path: Path) -> None:
+    if os.name == "nt":
+        return
+    try:
+        descriptor = os.open(path, os.O_RDONLY)
+        try:
+            os.fsync(descriptor)
+        finally:
+            os.close(descriptor)
+    except OSError:
+        # Some filesystems do not support directory fsync; the file itself was synced.
+        return
 
 
 def load_run_record(path: str | Path) -> dict[str, Any]:
@@ -358,6 +416,69 @@ def load_run_record(path: str | Path) -> dict[str, Any]:
     source = Path(path)
     try:
         record = json.loads(source.read_text(encoding="utf-8"))
-    except (OSError, json.JSONDecodeError) as error:
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
         raise RunRecordValidationError(f"Cannot load run record {source}: {error}") from error
     return validate_run_record(record)
+
+
+def list_run_records(
+    runs_dir: str | Path, *, problem_id: str | None = None
+) -> dict[str, list[dict[str, Any]]]:
+    """List valid records, interrupted-save markers, and unreadable files."""
+    root = Path(runs_dir)
+    records: list[dict[str, Any]] = []
+    incomplete: list[dict[str, Any]] = []
+    invalid: list[dict[str, str]] = []
+    complete_ids: set[str] = set()
+
+    if not root.exists():
+        return {"runs": records, "incomplete": incomplete, "invalid_files": invalid}
+
+    for path in sorted(root.glob("*.json")):
+        try:
+            record = load_run_record(path)
+        except RunRecordValidationError as error:
+            invalid.append({"path": str(path), "error": str(error)})
+            continue
+        if problem_id is not None and record["problem"]["problem_id"] != problem_id:
+            continue
+        complete_ids.add(record["run_id"])
+        records.append(
+            {
+                "run_id": record["run_id"],
+                "problem_id": record["problem"]["problem_id"],
+                "schema_version": record["schema_version"],
+                "run_status": record["run_status"],
+                "outcome": record["outcome"]["outcome"],
+                "reason": record["outcome"]["reason"],
+                "path": str(path),
+            }
+        )
+
+    for marker_path in sorted(root.glob("*.json.incomplete")):
+        try:
+            marker = json.loads(marker_path.read_text(encoding="utf-8"))
+            if type(marker) is not dict or not isinstance(marker.get("run_id"), str):
+                raise ValueError("Incomplete marker is missing a run_id.")
+        except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as error:
+            invalid.append({"path": str(marker_path), "error": str(error)})
+            continue
+        if marker["run_id"] in complete_ids:
+            continue
+        if problem_id is not None and marker.get("problem_id") != problem_id:
+            continue
+        incomplete.append({**marker, "marker_path": str(marker_path)})
+
+    return {"runs": records, "incomplete": incomplete, "invalid_files": invalid}
+
+
+def find_run_record(runs_dir: str | Path, run_id: str) -> dict[str, Any] | None:
+    """Load one complete run by ID, or return its interruption marker."""
+    entries = list_run_records(runs_dir)
+    for item in entries["runs"]:
+        if item["run_id"] == run_id:
+            return load_run_record(item["path"])
+    for marker in entries["incomplete"]:
+        if marker["run_id"] == run_id:
+            return {"incomplete_marker": marker}
+    return None

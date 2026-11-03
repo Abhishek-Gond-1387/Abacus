@@ -29,4 +29,4 @@ SHA-256 values use canonical UTF-8 JSON with sorted keys and compact separators 
 
 Run `python -m practice.day29_record_examples` to regenerate these files. The script uses `save_run_record()`, so both records are schema-validated before they are written. The schema tests also reject records missing the dataset version, outcome reason, or evidence references.
 
-Day 27's earlier ad hoc records used schema version 1. New CLI runs use version 2. Day 30 will address unique filenames; the run ID is already unique inside each record.
+Day 27's earlier ad hoc records used schema version 1. New CLI runs use version 2. Default run files use a timestamp and UUID, and the save layer refuses to overwrite an existing destination.

@@ -85,3 +85,12 @@
 - [x] Add complete and partial sample run records.
 - [x] Validate run records before saving; reject missing dataset version, outcome reason, or evidence references.
 - [x] Accept a valid partial run only with an explicit partial status and incomplete reason.
+
+## Day 30 — Save runs atomically and uniquely
+
+- [x] Confirm `runs/` is ignored by Git.
+- [x] Give each run a unique UUID and timestamp-based default filename.
+- [x] Flush a same-directory temporary record and rename it into place without overwriting existing records.
+- [x] Leave a parseable `.incomplete` marker with run ID and temporary-file path if save is interrupted.
+- [x] Add commands to list runs by problem and inspect a selected run ID.
+- [x] Run the same problem twice and verify both records remain distinct and valid.
