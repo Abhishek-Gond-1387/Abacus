@@ -37,3 +37,11 @@
 - Added hand-authored true and false sorting records. The original `claim` is stored separately and is never rewritten by model output; the loader does not execute `code` or call an LLM.
 - Validated both example files and checked that missing `id`, an invalid label, and a false record without `known_counterexample` are rejected.
 - Next: Day 9 — implement the independent trusted sorting property and test it against a correct and faulty candidate.
+
+## Day 9 — Trusted sorting property
+
+- Added oracle `sorted-integer-list-v1`, using Python's `sorted` as the independent reference.
+- The checker requires exact integer-list inputs and outputs, preserves duplicates, accepts empty lists, compares against sorted order, and rejects candidate input mutation.
+- Tested the correct candidate on empty, single-item, duplicate, negative, and already-sorted lists. The reverse-sort candidate fails on the Day 8 witness `[1, 2]`; an in-place sort also fails the no-mutation rule.
+- Limits: this covers finite lists of built-in integers and one input per check. It does not prove a universal claim, execute record code, or sandbox untrusted targets.
+- Next: Day 10 — make input-domain and precondition validation explicit before running a target.

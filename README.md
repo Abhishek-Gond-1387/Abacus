@@ -61,3 +61,15 @@ Validate both examples with:
 ```powershell
 .\.venv\Scripts\python.exe -m abacus.problems problems\sort-ascending-true.json problems\sort-ascending-false.json
 ```
+
+## Day 9: trusted sorting property
+
+`src/abacus/sorting_oracle.py` uses Python's `sorted` as the independent reference for oracle ID `sorted-integer-list-v1`. A passing candidate must return a list containing the same exact integers in nondecreasing order, accept an empty list, and leave its input unchanged. Booleans are excluded even though Python treats them as integers in some contexts.
+
+The check covers one supplied input at a time; passing finite examples does not prove behavior for every possible list. The oracle is appropriate here because Python's `sorted` is a clear reference for finite lists of built-in integers. It does not cover custom comparators, other element types, generators, or arbitrary Python behavior. The checker calls its candidate directly, so only trusted functions may be passed until a separate sandbox exists.
+
+Run the correct/faulty candidate and edge-case checks with:
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest discover -s tests
+```
