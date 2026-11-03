@@ -282,3 +282,9 @@ Verification: the focused smoke suite passed 2/2 tests in 3.76 seconds. The comp
 Expanded `.github/workflows/ci.yml` to run the same 3.11/3.14 test matrix on both `ubuntu-24.04` and `windows-2025`, for four jobs total. The test command, pinned actions, pip cache, 10-minute timeout, read-only permission, and API-key-free environment remain the same. GitHub's hosted-runner reference lists both labels; its Windows 2025 image includes Python 3.11 and 3.14 tool-cache versions.
 
 The unified suite passed 156/156 on the local Windows environment during Day 44. This workflow-only matrix expansion has not run on GitHub; remote verification remains pending until push. `git diff --check` passed after this change.
+
+## Day 46 Dependabot updates
+
+Added `.github/dependabot.yml` with weekly version-update checks for `github-actions` and `pip`, capped at two and three open PRs respectively. The action references in the workflow remain pinned to commit SHAs and include release tags in same-line comments, which Dependabot uses to track the intended action release. Version updates arrive as PRs and are not auto-merged; the CI workflow checks them when pushed/opened against `main`.
+
+Static review and `git diff --check` passed. No YAML parser is installed locally, and the Dependabot schedule cannot be observed until this configuration is pushed and GitHub processes its first weekly check.

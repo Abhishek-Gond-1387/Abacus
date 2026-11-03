@@ -233,3 +233,12 @@
 - [x] Document the four platform/version combinations in `README.md` and `NOTES.md`.
 - [x] Review the workflow change and pass `git diff --check`.
 - [ ] Confirm all four GitHub-hosted jobs pass after the workflow is pushed.
+
+## Day 46 — Keep CI actions and Python dependencies current
+
+- [x] Configure weekly Dependabot version checks for GitHub Actions and pip dependencies.
+- [x] Keep update pull requests bounded with explicit per-ecosystem limits.
+- [x] Retain SHA-pinned actions and version comments so updates remain reviewable.
+- [x] Document the schedule and manual review/merge requirement in `README.md`.
+- [x] Review the configuration structure and pass `git diff --check`.
+- [ ] Confirm Dependabot creates update PRs after the config is pushed and its weekly check runs.

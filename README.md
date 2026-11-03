@@ -1,6 +1,6 @@
 # Abacus
 
-Abacus is a research prototype for checking precise claims about Python functions. It searches for candidate counterexamples and uses trusted checks to decide what the evidence supports. A passing finite test run is not a proof of correctness. This repository tracks the Day 1–45 learning work.
+Abacus is a research prototype for checking precise claims about Python functions. It searches for candidate counterexamples and uses trusted checks to decide what the evidence supports. A passing finite test run is not a proof of correctness. This repository tracks the Day 1–46 learning work.
 
 The Day 1–3 exercises use Python's standard library. Day 5 and Day 6 use the OpenAI-compatible Python SDK and `python-dotenv`; Gemini is the default provider, with OpenAI available as an optional provider. Day 6 puts live requests behind a reusable helper and includes an offline stub.
 
@@ -422,3 +422,7 @@ The unified suite now runs the real `python -m abacus run` command in isolated s
 ## Day 45 cross-platform CI
 
 The GitHub Actions matrix runs the same regression suite on both `ubuntu-24.04` and `windows-2025`, with Python 3.11 and 3.14 on each platform. This covers four OS/Python combinations, including the Windows environment used for local development. Each job retains the same read-only token permission, dependency install, and no-provider-credentials setup.
+
+## Day 46 dependency updates
+
+`.github/dependabot.yml` checks GitHub Actions and Python/pip dependencies weekly. It limits open update pull requests to two for actions and three for Python packages. Because workflow actions are pinned to commit SHAs with release-version comments, Dependabot can propose reviewable SHA updates. Update PRs still need to pass CI and be reviewed before merging; this configuration does not auto-merge them.
