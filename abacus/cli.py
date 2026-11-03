@@ -15,7 +15,7 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from hypothesis import __version__ as hypothesis_version
 
@@ -207,12 +207,13 @@ def run_problem(
     log_path: str | Path | None = None,
     *,
     runs_dir: str | Path = RUNS_DIR,
+    run_id: str | None = None,
     checkpoint_callback: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     """Run fixed, Hypothesis, and proposal evidence and always save the run log."""
     started_at = datetime.now(timezone.utc)
     started_clock = time.perf_counter()
-    run_id = str(uuid4())
+    run_id = str(UUID(run_id)) if run_id is not None else str(uuid4())
     destination = (
         Path(log_path)
         if log_path is not None

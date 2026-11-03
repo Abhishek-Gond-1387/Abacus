@@ -1,0 +1,15 @@
+.git/
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.env
+.env.*
+!.env.api.example
+runs/
+.abacus-audits/
+.abacus-data/
+.pytest_cache/
+.hypothesis/

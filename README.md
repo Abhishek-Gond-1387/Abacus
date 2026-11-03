@@ -34,6 +34,55 @@ python -m venv .venv
 
 The regression suite and seed-problem runs work without `.env`, provider credentials, or network/API calls. Create `.env` from `.env.example` only when you choose to make a live provider request. Git ignores `.env`, run outputs, virtual environments, and test/tool caches.
 
+## Backend API (FastAPI + SQLite)
+
+The HTTP service exposes the checked-in sorting problems and runs the same local evaluation pipeline as the CLI. It does not accept uploaded Python code or arbitrary problem files. Protected routes require an `X-API-Key` with at least 32 characters. Each run submission also requires a unique `Idempotency-Key`; reusing it for the same problem returns the saved run instead of evaluating twice.
+
+| Route | Access | Purpose |
+| --- | --- | --- |
+| `GET /health/live` | Public | Process liveness |
+| `GET /health/ready` | Public | API-key configuration and SQLite readiness |
+| `GET /v1/problems` | API key | List the supported seed problems |
+| `POST /v1/runs` | API key + idempotency key | Start a local evaluation |
+| `GET /v1/runs/{run_id}` | API key | Read a saved run and its evidence |
+| `GET /metrics` | API key | Process-local Prometheus counters |
+
+### Run with Docker Compose
+
+Install Docker Desktop, then run these commands from the repository root in PowerShell. The API binds to `127.0.0.1:8000` by default and stores SQLite data and run files in a named volume.
+
+```powershell
+python -c "import pathlib,secrets; pathlib.Path('.env.api').write_text('ABACUS_API_KEY=' + secrets.token_urlsafe(48) + '\n', encoding='utf-8')"
+docker compose --env-file .env.api up --build -d
+docker compose --env-file .env.api ps
+Invoke-RestMethod http://127.0.0.1:8000/health/ready
+```
+
+Submit a run and fetch its record:
+
+```powershell
+$settings = Get-Content .env.api | ConvertFrom-StringData
+$headers = @{
+    "X-API-Key" = $settings.ABACUS_API_KEY
+    "Idempotency-Key" = [guid]::NewGuid().ToString()
+}
+$run = Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/v1/runs `
+    -Headers $headers -ContentType "application/json" `
+    -Body '{"problem_id":"p01_true_sort"}'
+$run
+Invoke-RestMethod -Uri "http://127.0.0.1:8000/v1/runs/$($run.run_id)" -Headers $headers
+```
+
+Stop the service with `docker compose --env-file .env.api down`; keep the named `abacus-data` volume to retain saved runs. To bind a different local port, add `ABACUS_PORT=8001` to `.env.api`. The Compose configuration is a single-instance deployment foundation: SQLite and in-process metrics/semaphores are intended for one worker and one host. Put TLS and any public network exposure behind a properly configured reverse proxy. User accounts, roles, multi-tenant quotas, remote database support, and cloud deployment are not implemented.
+
+For local development without Docker, install the project and test extra, set `ABACUS_API_KEY` to a random secret of at least 32 characters, and start one worker:
+
+```powershell
+python -m pip install -e ".[test]"
+$env:ABACUS_API_KEY = (python -c "import secrets; print(secrets.token_urlsafe(48))")
+python -m uvicorn abacus.api:app --host 127.0.0.1 --port 8000 --workers 1
+```
+
 ## Day 5: first API call
 
 Get a Gemini API key from [Google AI Studio](https://aistudio.google.com/), then set `ABACUS_LLM_PROVIDER=gemini` and put the key in `GEMINI_API_KEY` in `.env`. If `.env` does not exist yet, copy `.env.example` first. `.env` is ignored by Git; never commit the key or paste it into chat or `NOTES.md`.
@@ -156,7 +205,7 @@ The resulting [run record](runs/day15-sorting-edge-cases.json) contains 11 passi
 
 ## Day 16: Hypothesis property-based checks
 
-Hypothesis `6.170.14` is pinned as the optional `test` dependency, keeping it out of the runtime install. Install this version directly into the project environment with:
+Hypothesis `6.170.14` is pinned in the runtime dependencies because the local evaluator imports it for property-based input generation. The `test` extra adds HTTPX for the API's in-process integration tests. Install Hypothesis directly into the project environment with:
 
 ```powershell
 .\.venv\Scripts\python.exe -m pip install hypothesis==6.170.14

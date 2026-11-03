@@ -1,0 +1,34 @@
+services:
+  abacus-api:
+    build: .
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    ports:
+      - "127.0.0.1:${ABACUS_PORT:-8000}:8000"
+    environment:
+      ABACUS_API_KEY: ${ABACUS_API_KEY:?Set ABACUS_API_KEY in .env.api}
+      ABACUS_DATA_DIR: /data
+      ABACUS_DATABASE_PATH: /data/abacus.sqlite3
+      ABACUS_RUNS_DIR: /data/runs
+    volumes:
+      - abacus-data:/data
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health/ready', timeout=2)"
+      interval: 30s
+      timeout: 3s
+      start_period: 10s
+      retries: 3
+
+volumes:
+  abacus-data:

@@ -5,8 +5,10 @@ __pycache__/
 build/
 dist/
 .env
+.env.api
 runs/
 .abacus-audits/
+.abacus-data/
 .pip-build-temp/
 .hypothesis/
 .pytest_cache/
