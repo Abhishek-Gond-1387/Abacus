@@ -1,66 +1,115 @@
-"""Small SQLite store for HTTP-submitted Abacus runs."""
+"""Transactional run persistence backed by SQLite or PostgreSQL."""
 
 from __future__ import annotations
 
 import json
-import sqlite3
-from contextlib import closing
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from uuid import UUID
+
+from sqlalchemy import select, update
+from sqlalchemy.dialects.postgresql import insert as postgresql_insert
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.engine import Engine
+from sqlalchemy.orm import Session
+
+from abacus.database import (
+    ApiRun,
+    Problem,
+    create_database_engine,
+    database_session_factory,
+    upgrade_database,
+)
 
 
 class RunStore:
-    """Persist run lifecycle and result JSON without storing API keys or request bodies."""
+    """Persist normalized run lifecycle data and a validated JSON evidence snapshot."""
 
-    def __init__(self, database_path: str | Path) -> None:
-        self.path = Path(database_path)
+    def __init__(self, database_url: str | Path) -> None:
+        value = str(database_url)
+        if "://" not in value:
+            from abacus.database import sqlite_url
 
-    def _connect(self) -> sqlite3.Connection:
-        if str(self.path) == ":memory:":
-            raise ValueError("A persistent file path is required for the API database.")
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        connection = sqlite3.connect(self.path, timeout=5.0, isolation_level=None)
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA busy_timeout = 5000")
-        connection.execute("PRAGMA foreign_keys = ON")
-        return connection
+            value = sqlite_url(value)
+        self.database_url = value
+        self.engine: Engine = create_database_engine(value)
+        self._session_factory = database_session_factory(self.engine)
 
     @staticmethod
-    def _row_dict(row: sqlite3.Row | None) -> dict[str, Any] | None:
+    def _datetime(value: str | datetime) -> datetime:
+        parsed = datetime.fromisoformat(value) if isinstance(value, str) else value
+        if parsed.tzinfo is None or parsed.utcoffset() is None:
+            raise ValueError("Database timestamps must include a UTC offset.")
+        return parsed.astimezone(timezone.utc)
+
+    @staticmethod
+    def _timestamp(value: datetime) -> str:
+        if value.tzinfo is None or value.utcoffset() is None:
+            value = value.replace(tzinfo=timezone.utc)
+        return value.astimezone(timezone.utc).isoformat()
+
+    @classmethod
+    def _row_dict(cls, row: ApiRun | None) -> dict[str, Any] | None:
         if row is None:
             return None
-        item = dict(row)
-        record_json = item.pop("record_json")
-        item["record"] = json.loads(record_json) if record_json else None
-        return item
+        record = row.record_json
+        record_outcome = record.get("outcome") if type(record) is dict else None
+        return {
+            "run_id": str(row.run_id),
+            "problem_id": row.problem_id,
+            "state": row.state,
+            "idempotency_hash": row.idempotency_hash,
+            "outcome": record_outcome.get("outcome")
+            if type(record_outcome) is dict else None,
+            "run_status": record.get("run_status") if type(record) is dict else None,
+            "error_category": row.error_category,
+            "created_at_utc": cls._timestamp(row.created_at_utc),
+            "updated_at_utc": cls._timestamp(row.updated_at_utc),
+            "finished_at_utc": cls._timestamp(row.finished_at_utc)
+            if row.finished_at_utc is not None else None,
+            "record": record,
+        }
 
     def initialize(self) -> None:
-        with closing(self._connect()) as connection:
-            connection.execute("PRAGMA journal_mode = WAL")
-            connection.executescript(
-                """
-                CREATE TABLE IF NOT EXISTS api_runs (
-                    run_id TEXT PRIMARY KEY,
-                    problem_id TEXT NOT NULL,
-                    state TEXT NOT NULL CHECK (state IN ('queued', 'running', 'finished', 'failed', 'interrupted')),
-                    idempotency_hash TEXT NOT NULL UNIQUE,
-                    outcome TEXT,
-                    run_status TEXT,
-                    error_category TEXT,
-                    created_at_utc TEXT NOT NULL,
-                    updated_at_utc TEXT NOT NULL,
-                    finished_at_utc TEXT,
-                    record_json TEXT
-                );
-                CREATE INDEX IF NOT EXISTS api_runs_created_at_idx
-                    ON api_runs(created_at_utc DESC);
-                """
-            )
+        """Upgrade the database to the reviewed schema before serving requests."""
+        upgrade_database(self.database_url)
+
+    def close(self) -> None:
+        self.engine.dispose()
 
     def ping(self) -> bool:
-        with closing(self._connect()) as connection:
-            row = connection.execute("SELECT 1").fetchone()
-            return row is not None and row[0] == 1
+        with self.engine.connect() as connection:
+            return connection.exec_driver_sql("SELECT 1").scalar_one() == 1
+
+    def sync_problems(self, problem_ids: list[str], *, now: str | datetime) -> None:
+        """Atomically publish the active problem allowlist and retain historical FK rows."""
+        identifiers = sorted(set(problem_ids))
+        timestamp = self._datetime(now)
+        with self._session_factory.begin() as session:
+            current = {
+                item.problem_id: item
+                for item in session.scalars(select(Problem)).all()
+            }
+            for problem_id in identifiers:
+                item = current.get(problem_id)
+                if item is None:
+                    session.add(Problem(
+                        problem_id=problem_id,
+                        is_active=True,
+                        created_at_utc=timestamp,
+                        updated_at_utc=timestamp,
+                    ))
+                else:
+                    item.is_active = True
+                    item.updated_at_utc = timestamp
+            inactive_ids = set(current) - set(identifiers)
+            if inactive_ids:
+                session.execute(
+                    update(Problem)
+                    .where(Problem.problem_id.in_(inactive_ids))
+                    .values(is_active=False, updated_at_utc=timestamp)
+                )
 
     def reserve_run(
         self,
@@ -68,84 +117,115 @@ class RunStore:
         run_id: str,
         problem_id: str,
         idempotency_hash: str,
-        now: str,
+        now: str | datetime,
     ) -> tuple[dict[str, Any], bool]:
-        """Create one queued run, or return the existing request's row atomically."""
-        with closing(self._connect()) as connection:
-            connection.execute("BEGIN IMMEDIATE")
-            existing = connection.execute(
-                "SELECT * FROM api_runs WHERE idempotency_hash = ?",
-                (idempotency_hash,),
-            ).fetchone()
-            if existing is not None:
-                connection.commit()
-                row = self._row_dict(existing)
-                assert row is not None
-                return row, False
-            connection.execute(
-                """
-                INSERT INTO api_runs (
-                    run_id, problem_id, state, idempotency_hash,
-                    created_at_utc, updated_at_utc
-                ) VALUES (?, ?, 'queued', ?, ?, ?)
-                """,
-                (run_id, problem_id, idempotency_hash, now, now),
+        """Insert once under concurrent retries, returning the row that owns the key."""
+        identifier = UUID(run_id)
+        timestamp = self._datetime(now)
+        values = {
+            "run_id": identifier,
+            "problem_id": problem_id,
+            "state": "queued",
+            "idempotency_hash": idempotency_hash,
+            "created_at_utc": timestamp,
+            "updated_at_utc": timestamp,
+        }
+        if self.engine.dialect.name == "sqlite":
+            insert_statement = sqlite_insert(ApiRun).values(**values)
+        elif self.engine.dialect.name == "postgresql":
+            insert_statement = postgresql_insert(ApiRun).values(**values)
+        else:
+            raise RuntimeError(f"Unsupported database dialect: {self.engine.dialect.name}")
+        insert_statement = insert_statement.on_conflict_do_nothing(
+            index_elements=[ApiRun.idempotency_hash]
+        )
+
+        with self._session_factory.begin() as session:
+            result = session.execute(insert_statement)
+            row = session.scalar(
+                select(ApiRun).where(ApiRun.idempotency_hash == idempotency_hash)
             )
-            connection.commit()
-            row = connection.execute("SELECT * FROM api_runs WHERE run_id = ?", (run_id,)).fetchone()
-            result = self._row_dict(row)
-            assert result is not None
-            return result, True
+            if row is None:
+                raise RuntimeError("Run insert did not produce or find an idempotency row.")
+            item = self._row_dict(row)
+            assert item is not None
+            return item, result.rowcount == 1
 
     def get_run(self, run_id: str) -> dict[str, Any] | None:
-        with closing(self._connect()) as connection:
-            return self._row_dict(
-                connection.execute("SELECT * FROM api_runs WHERE run_id = ?", (run_id,)).fetchone()
-            )
+        with self._session_factory() as session:
+            row = session.get(ApiRun, UUID(run_id))
+            return self._row_dict(row)
 
-    def mark_running(self, run_id: str, *, now: str) -> None:
-        with closing(self._connect()) as connection:
-            connection.execute(
-                "UPDATE api_runs SET state = 'running', updated_at_utc = ? WHERE run_id = ? AND state = 'queued'",
-                (now, run_id),
+    def mark_running(self, run_id: str, *, now: str | datetime) -> None:
+        with self._session_factory.begin() as session:
+            result = session.execute(
+                update(ApiRun)
+                .where(ApiRun.run_id == UUID(run_id), ApiRun.state == "queued")
+                .values(state="running", updated_at_utc=self._datetime(now))
             )
+            if result.rowcount != 1:
+                raise RuntimeError("Run is not queued and cannot transition to running.")
 
-    def finish_run(self, run_id: str, record: dict[str, Any], *, now: str) -> None:
-        output = json.dumps(record, ensure_ascii=False, allow_nan=False, separators=(",", ":"))
-        with closing(self._connect()) as connection:
-            cursor = connection.execute(
-                """
-                UPDATE api_runs
-                SET state = 'finished', run_status = ?, outcome = ?, record_json = ?,
-                    updated_at_utc = ?, finished_at_utc = ?
-                WHERE run_id = ? AND state = 'running'
-                """,
-                (record["run_status"], record["outcome"]["outcome"], output, now, now, run_id),
+    def finish_run(self, run_id: str, record: dict[str, Any], *, now: str | datetime) -> None:
+        if type(record) is not dict or record.get("run_id") != str(UUID(run_id)):
+            raise ValueError("Run record ID does not match the reserved run ID.")
+        run_status = record.get("run_status")
+        outcome = record.get("outcome")
+        if run_status not in {"complete", "partial", "error"}:
+            raise ValueError("Run record has an unsupported run_status.")
+        if type(outcome) is not dict or outcome.get("outcome") not in {
+            "REFUTED", "TESTS_PASSED", "PROVEN", "UNRESOLVED", "ERROR",
+        }:
+            raise ValueError("Run record has an unsupported outcome.")
+        json_safe_record = json.loads(json.dumps(
+            record, ensure_ascii=False, allow_nan=False, separators=(",", ":")
+        ))
+        with self._session_factory.begin() as session:
+            result = session.execute(
+                update(ApiRun)
+                .where(ApiRun.run_id == UUID(run_id), ApiRun.state == "running")
+                .values(
+                    state="finished",
+                    record_json=json_safe_record,
+                    updated_at_utc=self._datetime(now),
+                    finished_at_utc=self._datetime(now),
+                )
             )
-            if cursor.rowcount != 1:
-                raise RuntimeError("Run row was not in the running state.")
+            if result.rowcount != 1:
+                raise RuntimeError("Run row is not running and cannot be finalized.")
 
-    def fail_run(self, run_id: str, *, error_category: str, now: str) -> None:
-        with closing(self._connect()) as connection:
-            connection.execute(
-                """
-                UPDATE api_runs
-                SET state = 'failed', error_category = ?, updated_at_utc = ?, finished_at_utc = ?
-                WHERE run_id = ? AND state IN ('queued', 'running')
-                """,
-                (error_category, now, now, run_id),
+    def fail_run(self, run_id: str, *, error_category: str, now: str | datetime) -> None:
+        if not error_category or len(error_category) > 64:
+            raise ValueError("error_category must contain 1-64 characters.")
+        with self._session_factory.begin() as session:
+            result = session.execute(
+                update(ApiRun)
+                .where(
+                    ApiRun.run_id == UUID(run_id),
+                    ApiRun.state.in_(("queued", "running")),
+                )
+                .values(
+                    state="failed",
+                    error_category=error_category,
+                    updated_at_utc=self._datetime(now),
+                    finished_at_utc=self._datetime(now),
+                )
             )
+            if result.rowcount != 1:
+                raise RuntimeError("Run is not nonterminal and cannot be failed.")
 
-    def recover_orphaned_runs(self, *, now: str) -> int:
-        """Mark all nonterminal runs from the previous process as interrupted at startup."""
-        with closing(self._connect()) as connection:
-            cursor = connection.execute(
-                """
-                UPDATE api_runs
-                SET state = 'interrupted', error_category = 'process_interrupted',
-                    updated_at_utc = ?, finished_at_utc = ?
-                WHERE state IN ('queued', 'running')
-                """,
-                (now, now),
+    def recover_orphaned_runs(self, *, now: str | datetime) -> int:
+        """Mark nonterminal rows interrupted when this single API process starts."""
+        timestamp = self._datetime(now)
+        with self._session_factory.begin() as session:
+            result = session.execute(
+                update(ApiRun)
+                .where(ApiRun.state.in_(("queued", "running")))
+                .values(
+                    state="interrupted",
+                    error_category="process_interrupted",
+                    updated_at_utc=timestamp,
+                    finished_at_utc=timestamp,
+                )
             )
-            return cursor.rowcount
+            return result.rowcount

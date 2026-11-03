@@ -8,7 +8,6 @@ import logging
 import os
 import re
 import secrets
-import sqlite3
 import threading
 import time
 from contextlib import asynccontextmanager
@@ -21,9 +20,11 @@ from fastapi import Depends, FastAPI, Header, HTTPException, Request, Security, 
 from fastapi.responses import JSONResponse, Response
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, ConfigDict, Field
+from sqlalchemy.exc import SQLAlchemyError
 
 from abacus.api_store import RunStore
 from abacus.cli import run_problem
+from abacus.database import default_database_url, sqlite_url
 from abacus.schemas import ProblemSpec, ProblemValidationError, load_problem
 
 
@@ -101,6 +102,7 @@ def _public_run(row: dict[str, Any], *, include_record: bool) -> dict[str, Any]:
 def create_app(
     *,
     data_dir: str | Path | None = None,
+    database_url: str | None = None,
     api_key_reader: Callable[[], str] | None = None,
 ) -> FastAPI:
     """Create the service with optional isolated paths/readers for deployment and integration checks."""
@@ -113,13 +115,19 @@ def create_app(
         configured_data_dir = PROJECT_ROOT / configured_data_dir
     configured_data_dir = configured_data_dir.resolve()
 
-    database_path = Path(
-        os.getenv("ABACUS_DATABASE_PATH", str(configured_data_dir / "abacus.sqlite3"))
-        if use_environment_paths else configured_data_dir / "abacus.sqlite3"
-    )
-    if not database_path.is_absolute():
-        database_path = PROJECT_ROOT / database_path
-    database_path = database_path.resolve()
+    if database_url is None:
+        if use_environment_paths and os.getenv("ABACUS_DATABASE_URL"):
+            configured_database_url = default_database_url()
+        else:
+            database_path = Path(
+                os.getenv("ABACUS_DATABASE_PATH", str(configured_data_dir / "abacus.sqlite3"))
+                if use_environment_paths else configured_data_dir / "abacus.sqlite3"
+            )
+            if not database_path.is_absolute():
+                database_path = PROJECT_ROOT / database_path
+            configured_database_url = sqlite_url(database_path.resolve())
+    else:
+        configured_database_url = database_url
     runs_dir = Path(
         os.getenv("ABACUS_RUNS_DIR", str(configured_data_dir / "runs"))
         if use_environment_paths else configured_data_dir / "runs"
@@ -127,7 +135,7 @@ def create_app(
     if not runs_dir.is_absolute():
         runs_dir = PROJECT_ROOT / runs_dir
     runs_dir = runs_dir.resolve()
-    store = RunStore(database_path)
+    store = RunStore(configured_database_url)
     read_api_key = api_key_reader or (lambda: os.getenv("ABACUS_API_KEY", ""))
     run_semaphore = threading.BoundedSemaphore(value=1)
     metrics_lock = threading.Lock()
@@ -141,11 +149,15 @@ def create_app(
     @asynccontextmanager
     async def lifespan(application: FastAPI):
         store.initialize()
+        store.sync_problems(list(PROBLEM_FILES), now=_utc_now())
         now = _utc_now()
         recovered = store.recover_orphaned_runs(now=_utc_text(now))
         if recovered:
             LOGGER.warning(json.dumps({"event": "orphaned_runs_recovered", "count": recovered}))
-        yield
+        try:
+            yield
+        finally:
+            store.close()
 
     app = FastAPI(
         title="Abacus API",
@@ -207,8 +219,8 @@ def create_app(
                 duration_ms=duration_seconds * 1_000,
             )
 
-    @app.exception_handler(sqlite3.Error)
-    async def database_error_handler(request: Request, error: sqlite3.Error):
+    @app.exception_handler(SQLAlchemyError)
+    async def database_error_handler(request: Request, error: SQLAlchemyError):
         LOGGER.error(json.dumps({
             "event": "database_error",
             "request_id": getattr(request.state, "request_id", None),
@@ -233,8 +245,11 @@ def create_app(
             )
         try:
             if not store.ping():
-                raise sqlite3.OperationalError("SQLite ping returned no result.")
-        except sqlite3.Error:
+                return JSONResponse(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    content={"status": "not_ready"},
+                )
+        except SQLAlchemyError:
             return JSONResponse(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 content={"status": "not_ready"},

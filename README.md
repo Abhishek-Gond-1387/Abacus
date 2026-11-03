@@ -34,14 +34,14 @@ python -m venv .venv
 
 The regression suite and seed-problem runs work without `.env`, provider credentials, or network/API calls. Create `.env` from `.env.example` only when you choose to make a live provider request. Git ignores `.env`, run outputs, virtual environments, and test/tool caches.
 
-## Backend API (FastAPI + SQLite)
+## Backend API (FastAPI + PostgreSQL)
 
-The HTTP service exposes the checked-in sorting problems and runs the same local evaluation pipeline as the CLI. It does not accept uploaded Python code or arbitrary problem files. Protected routes require an `X-API-Key` with at least 32 characters. Each run submission also requires a unique `Idempotency-Key`; reusing it for the same problem returns the saved run instead of evaluating twice.
+The HTTP service exposes the checked-in sorting problems and runs the same local evaluation pipeline as the CLI. It does not accept uploaded Python code or arbitrary problem files. Protected routes require an `X-API-Key` with at least 32 characters. Each run submission also requires a unique `Idempotency-Key`; reusing it for the same problem returns the saved run instead of evaluating twice. Docker Compose runs PostgreSQL; local development defaults to SQLite. See the [database architecture](docs/database-architecture.md) for tables, constraints, transactions, and legacy-data migration details.
 
 | Route | Access | Purpose |
 | --- | --- | --- |
 | `GET /health/live` | Public | Process liveness |
-| `GET /health/ready` | Public | API-key configuration and SQLite readiness |
+| `GET /health/ready` | Public | API-key configuration and database connectivity |
 | `GET /v1/problems` | API key | List the supported seed problems |
 | `POST /v1/runs` | API key + idempotency key | Start a local evaluation |
 | `GET /v1/runs/{run_id}` | API key | Read a saved run and its evidence |
@@ -49,10 +49,10 @@ The HTTP service exposes the checked-in sorting problems and runs the same local
 
 ### Run with Docker Compose
 
-Install Docker Desktop, then run these commands from the repository root in PowerShell. The API binds to `127.0.0.1:8000` by default and stores SQLite data and run files in a named volume.
+Install Docker Desktop, then run these commands from the repository root in PowerShell. The API binds to `127.0.0.1:8000` by default, starts PostgreSQL on the private Compose network, and applies Alembic migrations before accepting requests. The PostgreSQL database and run files use named volumes.
 
 ```powershell
-python -c "import pathlib,secrets; pathlib.Path('.env.api').write_text('ABACUS_API_KEY=' + secrets.token_urlsafe(48) + '\n', encoding='utf-8')"
+python -c "import pathlib,secrets; p=pathlib.Path('.env.api'); p.write_text('ABACUS_API_KEY=' + secrets.token_urlsafe(48) + '\nDB_PASSWORD=' + secrets.token_urlsafe(36) + '\nABACUS_PORT=8000\n', encoding='utf-8')"
 docker compose --env-file .env.api up --build -d
 docker compose --env-file .env.api ps
 Invoke-RestMethod http://127.0.0.1:8000/health/ready
@@ -73,9 +73,9 @@ $run
 Invoke-RestMethod -Uri "http://127.0.0.1:8000/v1/runs/$($run.run_id)" -Headers $headers
 ```
 
-Stop the service with `docker compose --env-file .env.api down`; keep the named `abacus-data` volume to retain saved runs. To bind a different local port, add `ABACUS_PORT=8001` to `.env.api`. The Compose configuration is a single-instance deployment foundation: SQLite and in-process metrics/semaphores are intended for one worker and one host. Put TLS and any public network exposure behind a properly configured reverse proxy. User accounts, roles, multi-tenant quotas, remote database support, and cloud deployment are not implemented.
+Stop the service with `docker compose --env-file .env.api down`; keep the named `postgres-data` and `abacus-data` volumes to retain saved database rows and run files. To bind a different local port, set `ABACUS_PORT=8001` in `.env.api`. The Compose configuration currently runs one API process. Runs execute synchronously, and scaling workers needs a queue and a lease/recovery protocol. Put TLS and any public network exposure behind a properly configured reverse proxy. User accounts, roles, multi-tenant quotas, and cloud deployment are not implemented.
 
-For local development without Docker, install the project and test extra, set `ABACUS_API_KEY` to a random secret of at least 32 characters, and start one worker:
+For local development without Docker, install the project and test extra, set `ABACUS_API_KEY` to a random secret of at least 32 characters, and start one worker. The API creates/updates the local SQLite schema through Alembic at startup; set `ABACUS_DATABASE_URL` to a PostgreSQL URL to use PostgreSQL instead.
 
 ```powershell
 python -m pip install -e ".[test]"

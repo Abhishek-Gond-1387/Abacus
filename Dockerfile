@@ -4,15 +4,16 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH=/app \
     ABACUS_DATA_DIR=/data \
-    ABACUS_DATABASE_PATH=/data/abacus.sqlite3 \
     ABACUS_RUNS_DIR=/data/runs
 
 WORKDIR /app
 
 COPY pyproject.toml ./
+COPY alembic.ini ./
 COPY abacus/ ./abacus/
 COPY practice/ ./practice/
 COPY src/ ./src/
+COPY migrations/ ./migrations/
 RUN pip install --no-cache-dir . \
     && groupadd --system abacus \
     && useradd --system --gid abacus --uid 10001 --home-dir /nonexistent abacus

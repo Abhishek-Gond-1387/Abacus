@@ -137,10 +137,17 @@ class ApiServiceTests(unittest.TestCase):
             self.assertEqual(unconfigured.get("/health/live").status_code, 200)
             self.assertEqual(unconfigured.get("/health/ready").status_code, 503)
 
+    def test_readiness_fails_when_database_ping_fails(self) -> None:
+        with patch.object(self.app.state.store, "ping", return_value=False):
+            response = self.client.get("/health/ready")
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json(), {"status": "not_ready"})
+
     def test_startup_marks_previous_process_runs_interrupted(self) -> None:
         data_dir = self.data_dir / "orphaned"
         store = RunStore(data_dir / "abacus.sqlite3")
         store.initialize()
+        store.sync_problems(["p01_true_sort"], now=datetime.now(timezone.utc))
         run_id = str(uuid4())
         store.reserve_run(
             run_id=run_id,
@@ -148,6 +155,7 @@ class ApiServiceTests(unittest.TestCase):
             idempotency_hash=sha256(b"previous-process-run-key").hexdigest(),
             now=datetime.now(timezone.utc).isoformat(),
         )
+        store.close()
 
         app = create_app(data_dir=data_dir, api_key_reader=lambda: API_KEY)
         with TestClient(app):
