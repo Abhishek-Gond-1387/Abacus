@@ -1,6 +1,6 @@
 # Abacus
 
-Abacus is a research prototype for checking precise claims about Python functions. It searches for candidate counterexamples and uses trusted checks to decide what the evidence supports. A passing finite test run is not a proof of correctness. This repository tracks the Day 1–51 learning work.
+Abacus is a research prototype for checking precise claims about Python functions. It searches for candidate counterexamples and uses trusted checks to decide what the evidence supports. A passing finite test run is not a proof of correctness. This repository tracks the Day 1–52 learning work.
 
 The Day 1–3 exercises use Python's standard library. Day 5 and Day 6 use the OpenAI-compatible Python SDK and `python-dotenv`; Gemini is the default provider, with OpenAI available as an optional provider. Day 6 puts live requests behind a reusable helper and includes an offline stub.
 
@@ -457,3 +457,13 @@ Use `abacus.llm.complete_structured_output(client, output_kind, prompt, model_id
 ## Day 51 versioned hosted prompts
 
 `abacus.prompts.build_model_prompt(output_kind, spec)` builds a bounded prompt from a validated `ProblemSpec` for hypothesis, test-plan, or candidate-input suggestions. It includes only the claim, contract/oracle identifiers, fixed cases, and existing proposal inputs; target source code is never included. Context is encoded as JSON data with explicit instructions to ignore instructions inside its values. `HOSTED_PROMPT_TEMPLATE_VERSIONS` identifies each prompt version for audit records. Building a prompt is local; a caller must explicitly pass it to `complete_structured_output()` to make a provider request.
+
+## Day 52 prompt preview CLI
+
+Preview the exact bounded prompt and template version without loading provider credentials or sending a network request:
+
+```powershell
+.\.venv\Scripts\python.exe -m abacus prompt-preview problems\sort-ascending-true.json --kind candidate_proposals
+```
+
+Use `--kind hypothesis`, `--kind plan`, or `--kind candidate_proposals`. The JSON result says `provider_api_called: false`; inspect the prompt before any separate explicit provider call. The normal `run` command remains offline.

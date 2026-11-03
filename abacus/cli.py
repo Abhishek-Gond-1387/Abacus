@@ -43,7 +43,11 @@ from abacus.llm import (
     collect_offline_proposals,
     model_proposal_records as _model_proposal_records,
 )
-from abacus.prompts import PROMPT_TEMPLATE_VERSIONS
+from abacus.prompts import (
+    HOSTED_PROMPT_TEMPLATE_VERSIONS,
+    PROMPT_TEMPLATE_VERSIONS,
+    build_model_prompt,
+)
 from abacus.schemas import ProblemSpec, ProblemValidationError, load_problem, parse_problem
 from abacus.sandbox import EXECUTION_FLAG, MAX_INPUT_BYTES, MAX_SOURCE_BYTES, SandboxError, SandboxRunner
 from abacus.targets import ORACLES, TARGETS
@@ -994,6 +998,17 @@ def main(argv: list[str] | None = None) -> int:
         "--output",
         help="exact run-log path (default: unique timestamp+UUID under runs/); existing files are never overwritten",
     )
+    prompt_parser = subparsers.add_parser(
+        "prompt-preview",
+        help="preview a bounded hosted-model prompt without calling a provider",
+    )
+    prompt_parser.add_argument("problem", help="path to a validated problem JSON file")
+    prompt_parser.add_argument(
+        "--kind",
+        required=True,
+        choices=tuple(HOSTED_PROMPT_TEMPLATE_VERSIONS),
+        help="structured model output kind to preview",
+    )
     untrusted_parser = subparsers.add_parser(
         "execute-untrusted",
         help="run a candidate(value) function only through the verified container sandbox",
@@ -1068,6 +1083,22 @@ def main(argv: list[str] | None = None) -> int:
     except ProblemValidationError as error:
         print(f"Problem validation failed: {error}", file=sys.stderr)
         return 2
+
+    if args.command == "prompt-preview":
+        try:
+            prompt = build_model_prompt(args.kind, spec)
+        except (TypeError, ValueError) as error:
+            print(f"Prompt could not be built: {error}", file=sys.stderr)
+            return 2
+        print(json.dumps({
+            "output_kind": args.kind,
+            "template_version": HOSTED_PROMPT_TEMPLATE_VERSIONS[args.kind],
+            "prompt_bytes": len(prompt.encode("utf-8")),
+            "target_source_included": False,
+            "provider_api_called": False,
+            "prompt": prompt,
+        }, indent=2, ensure_ascii=False))
+        return 0
 
     requested_log_path = Path(args.output) if args.output else None
     pipeline_started_at = datetime.now(timezone.utc)

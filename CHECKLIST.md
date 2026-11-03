@@ -290,5 +290,14 @@
 - [x] Keep prompt size bounded at 32 KiB and assign stable hosted template version IDs.
 - [x] Document that building a prompt is local and provider access still requires an explicit call.
 - [x] Compile changed Python code and pass `git diff --check`.
-- [ ] Push the Day 51 commit to `main`.
+- [x] Confirm the Day 51 commit is present on remote-tracking `origin/main`.
 - [ ] Confirm all four hosted CI jobs pass.
+
+## Day 52 — Preview hosted prompts from the CLI
+
+- [x] Add `prompt-preview` to load a validated problem and select one of the versioned prompt kinds.
+- [x] Include prompt version and UTF-8 byte count while explicitly reporting that no provider call occurred.
+- [x] Keep credentials unloaded and the normal `run` path offline.
+- [x] Document the PowerShell command and available prompt kinds.
+- [x] Compile changed Python code and pass `git diff --check`.
+- [ ] Push the Day 52 commit and confirm all four hosted CI jobs pass.
