@@ -148,3 +148,12 @@
 - [x] Set initial CPU, memory/swap, process, file-size, output-size, and wall-time limits with corresponding verification probes.
 - [x] Define fail-closed behavior, cleanup requirements, and an execution flag that defaults off.
 - [x] Record runtime prerequisites and leave container execution disabled pending installation and Day 37 verification.
+
+## Day 37 — Build and verify the isolated runner
+
+- [x] Add a minimal Python standard-library probe image definition pinned to a resolved base-image digest at build time.
+- [x] Add a fixed-action probe program; it accepts only named harmless probes and cannot evaluate supplied source code.
+- [x] Add a fail-closed Docker build and verification harness with non-root, no-network/no-bind-mount, read-only rootfs, tmpfs, CPU/memory/process/file-size, wall-clock, output, and cleanup controls.
+- [ ] Build the image and record the exact image/runtime versions.
+- [ ] Run host-file, network, privilege/device, process-count, memory, file-size, rootfs-write, wall-time, output-size, and cleanup probes.
+- [ ] Confirm resource-control metadata and observed limits; keep untrusted execution disabled until all probes pass.
