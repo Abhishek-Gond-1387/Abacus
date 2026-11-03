@@ -224,3 +224,12 @@
 - [x] Keep smoke-test artifacts in a temporary directory and include the checks in the unified suite.
 - [x] Document the smoke checks and their standalone command in `README.md`.
 - [x] Run the focused smoke tests and record the result in `NOTES.md`.
+
+## Day 45 — Run CI across Windows and Linux
+
+- [x] Expand the GitHub Actions matrix to Ubuntu 24.04 and Windows Server 2025.
+- [x] Run both supported matrix Python versions (3.11 and 3.14) on each OS.
+- [x] Keep the same test command, dependency setup, read-only permissions, and API-key-free configuration.
+- [x] Document the four platform/version combinations in `README.md` and `NOTES.md`.
+- [x] Review the workflow change and pass `git diff --check`.
+- [ ] Confirm all four GitHub-hosted jobs pass after the workflow is pushed.

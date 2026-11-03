@@ -276,3 +276,9 @@ Local checks: manually reviewed workflow triggers, matrix, action references, pe
 Added `practice/test_day44_cli_smoke.py`; because the Day 21+ suite discovers `practice/test_*.py`, these subprocess checks run automatically in CI. They invoke the CLI against `p01_true_sort` and `p02_false_sort`, verify the console summary and saved JSON outcomes, require `provider_api_called` to remain false, and require confirmed counterexample replay for the false seed. Each run writes only to a temporary directory, and the child process receives no provider API keys. Focused test results are recorded after execution.
 
 Verification: the focused smoke suite passed 2/2 tests in 3.76 seconds. The complete unified regression suite passed 156 tests: 52 historical Day 1–20 tests and 104 current Day 21+ tests, in 54.05 seconds. All runs completed without live provider calls.
+
+## Day 45 cross-platform GitHub Actions matrix
+
+Expanded `.github/workflows/ci.yml` to run the same 3.11/3.14 test matrix on both `ubuntu-24.04` and `windows-2025`, for four jobs total. The test command, pinned actions, pip cache, 10-minute timeout, read-only permission, and API-key-free environment remain the same. GitHub's hosted-runner reference lists both labels; its Windows 2025 image includes Python 3.11 and 3.14 tool-cache versions.
+
+The unified suite passed 156/156 on the local Windows environment during Day 44. This workflow-only matrix expansion has not run on GitHub; remote verification remains pending until push. `git diff --check` passed after this change.
