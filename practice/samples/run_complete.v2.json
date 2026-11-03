@@ -186,7 +186,11 @@
     "reason": "No confirmed counterexample."
   },
   "usage": {
+    "resource_usage_version": 1,
     "model_call_count": 0,
+    "successful_model_call_count": 0,
+    "failed_model_call_count": 0,
+    "retry_call_count": 0,
     "provider_reported_token_usage": {
       "input_tokens": null,
       "output_tokens": null,
@@ -194,6 +198,27 @@
       "status": "not_applicable"
     },
     "duration_seconds": 0.012,
+    "stage_durations_seconds": {
+      "planning": null,
+      "proposals": null,
+      "tests": 0.011,
+      "total": 0.012
+    },
+    "stage_status": {
+      "planning": "not_configured",
+      "proposals": "not_configured",
+      "tests": "completed",
+      "total": "completed"
+    },
+    "pricing": {
+      "status": "not_applicable",
+      "provider_id": null,
+      "model_id": null,
+      "input_usd_per_million_tokens": null,
+      "output_usd_per_million_tokens": null,
+      "source_url": null,
+      "checked_at": null
+    },
     "estimated_cost_usd": 0.0,
     "actual_cost_usd": 0.0,
     "unknown_values": []
@@ -207,8 +232,20 @@
     "usage": {
       "rounds": 1,
       "model_calls": 0,
+      "successful_calls": 0,
+      "failed_calls": 0,
+      "retry_calls": 0,
       "tokens_actual": 0,
-      "cost_actual_usd": 0.0
+      "tokens_actual_status": "not_applicable",
+      "cost_estimated_usd": 0.0,
+      "cost_actual_usd": 0.0,
+      "cost_actual_status": "not_applicable",
+      "provider_reported_token_usage": {
+        "input_tokens": null,
+        "output_tokens": null,
+        "total_tokens": null,
+        "status": "not_applicable"
+      }
     },
     "stop_reason": null
   },

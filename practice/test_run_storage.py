@@ -55,6 +55,16 @@ class RunStorageTests(unittest.TestCase):
             self.assertEqual(result, 0)
             self.assertEqual(json.loads(output.getvalue())["run_id"], selected_id)
 
+            output = io.StringIO()
+            with redirect_stdout(output):
+                result = cli.main(["summarize-runs", spec.problem_id, "--runs-dir", directory])
+            self.assertEqual(result, 0)
+            summary = json.loads(output.getvalue())
+            self.assertEqual(summary["run_count"], 2)
+            self.assertEqual(summary["model_calls_total"], 0)
+            self.assertEqual(summary["provider_reported_token_usage"]["status"], "not_applicable")
+            self.assertEqual(summary["duration_seconds"]["count"], 2)
+
     def test_successful_atomic_save_leaves_valid_json_without_marker(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             path = save_run_record(Path(directory) / "sample.json", complete_sample())

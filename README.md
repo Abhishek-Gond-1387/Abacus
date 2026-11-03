@@ -112,3 +112,11 @@ List saved runs or filter by problem, then inspect one by its run ID:
 ## Day 31 secret-safe logs
 
 Run records and budget logs pass through a redaction layer before being written. It removes values under credential-like field names, recognizable authorization/token formats, labeled secret assignments, private-key blocks, and configured secret values from environment variables. Numeric usage counters such as `input_tokens` remain available. The saved dataset hash is recalculated from the redacted dataset body; `problem_spec_sha256` remains a fingerprint of the original input file.
+
+## Day 32 resource usage
+
+Each run records model-call attempts, successful and failed calls, retry attempts, provider-reported input/output tokens, stage durations, total duration, and cost status. Missing response usage or pricing is recorded as `unknown`; no provider call is `not_applicable`. The current pilot makes no provider calls, so its token use is not applicable and its API cost is zero.
+
+Provider pricing is optional per problem. When a provider/model is selected, supply `provider_id`, `model_id`, `input_usd_per_million_tokens`, `output_usd_per_million_tokens`, `source_url`, and `checked_at` from the current pricing page. Omit the configuration while rates are unknown; the logger will not substitute zero.
+
+Use `python -m abacus summarize-runs [problem_id]` for per-run medians and ranges. Its output keeps unknown and not-applicable counts separate from measured values.

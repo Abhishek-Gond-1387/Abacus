@@ -36,6 +36,27 @@ class Day27PipelineTests(unittest.TestCase):
         self.assertTrue(saved["problem"]["dataset_sha256"])
         self.assertTrue(saved["target"]["code_sha256"])
         self.assertEqual(saved["budget"]["usage"]["model_calls"], 0)
+        usage = saved["usage"]
+        self.assertEqual(usage["resource_usage_version"], 1)
+        self.assertEqual(usage["provider_reported_token_usage"]["status"], "not_applicable")
+        self.assertEqual(usage["pricing"]["status"], "not_applicable")
+        self.assertEqual(usage["stage_status"]["planning"], "not_configured")
+        self.assertEqual(usage["stage_status"]["tests"], "completed")
+        self.assertGreaterEqual(usage["stage_durations_seconds"]["tests"], 0)
+
+    def test_problem_accepts_dated_model_pricing(self) -> None:
+        payload = json.loads((PROBLEMS / "p01_true_sort.json").read_text(encoding="utf-8"))
+        payload["pricing"] = {
+            "provider_id": "fixture-provider",
+            "model_id": "fixture-model",
+            "input_usd_per_million_tokens": 2.0,
+            "output_usd_per_million_tokens": 8.0,
+            "source_url": "https://example.com/pricing",
+            "checked_at": "2026-11-03",
+        }
+        spec = parse_problem(payload)
+        self.assertEqual(spec.pricing_config.provider_id, "fixture-provider")
+        self.assertEqual(spec.pricing_config.checked_at, "2026-11-03")
 
     def test_false_example_is_refuted_only_after_confirmed_replay(self) -> None:
         spec = load_problem(PROBLEMS / "p02_false_sort.json")

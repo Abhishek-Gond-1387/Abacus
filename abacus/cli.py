@@ -26,11 +26,13 @@ from practice.revisions import ClaimRevision, RevisionTriggerEvidence
 from practice.run_records import (
     RUN_RECORD_SCHEMA_VERSION,
     find_run_record,
+    load_run_record,
     list_run_records,
     save_run_record,
     sanitize_for_log,
     sanitize_run_record_for_log,
 )
+from practice.usage_metrics import PricingConfig, calculate_actual_cost_usd, summarize_run_usage
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -58,6 +60,7 @@ class ProblemSpec:
     hypothesis: dict[str, int]
     budget_config: BudgetConfig
     revision_proposal: dict[str, str] | None
+    pricing_config: PricingConfig | None
 
 
 def sort_correct(values: list[int]) -> list[int]:
@@ -111,7 +114,7 @@ def parse_problem(payload: Any) -> ProblemSpec:
     root = _require_keys(
         payload,
         {"schema_version", "problem_id", "dataset_version", "claim", "target", "contract", "plan_suggestions", "fixed_cases", "hypothesis", "budget"},
-        {"proposal_fixtures", "revision_proposal_fixture"},
+        {"proposal_fixtures", "revision_proposal_fixture", "pricing"},
         "problem",
     )
     if type(root["schema_version"]) is not int or root["schema_version"] != 1:
@@ -203,6 +206,30 @@ def parse_problem(payload: Any) -> ProblemSpec:
     if budget.max_rounds < 1 or budget.max_wall_time_seconds <= 0:
         raise ProblemValidationError("The local evaluation needs at least one round and positive wall time.")
 
+    raw_pricing = root.get("pricing")
+    pricing_config = None
+    if raw_pricing is not None:
+        pricing = _require_keys(
+            raw_pricing,
+            {
+                "provider_id", "model_id", "input_usd_per_million_tokens",
+                "output_usd_per_million_tokens", "source_url", "checked_at",
+            },
+            set(),
+            "pricing",
+        )
+        try:
+            pricing_config = PricingConfig(
+                provider_id=_nonempty_text(pricing["provider_id"], "pricing.provider_id"),
+                model_id=_nonempty_text(pricing["model_id"], "pricing.model_id"),
+                input_usd_per_million_tokens=pricing["input_usd_per_million_tokens"],
+                output_usd_per_million_tokens=pricing["output_usd_per_million_tokens"],
+                source_url=_nonempty_text(pricing["source_url"], "pricing.source_url"),
+                checked_at=_nonempty_text(pricing["checked_at"], "pricing.checked_at"),
+            )
+        except (TypeError, ValueError) as error:
+            raise ProblemValidationError(f"Invalid pricing configuration: {error}") from error
+
     revision_fixture = root.get("revision_proposal_fixture")
     revision_proposal = None
     if revision_fixture is not None:
@@ -249,6 +276,7 @@ def parse_problem(payload: Any) -> ProblemSpec:
         hypothesis=hypothesis,
         budget_config=budget,
         revision_proposal=revision_proposal,
+        pricing_config=pricing_config,
     )
 
 
@@ -519,6 +547,7 @@ def run_problem(
         if record["status"] == "internal_error":
             _append_error(errors, method, detail.get("failure_category", "Evaluation failed."))
 
+    tests_started_clock = time.perf_counter()
     for index, value in enumerate(spec.fixed_cases, start=1):
         record_case("fixed", f"fixed-{index}", value)
 
@@ -537,12 +566,15 @@ def run_problem(
     else:
         for index, value in enumerate(hypothesis_cases, start=1):
             record_case("hypothesis", f"hypothesis-{index}", value)
+    tests_duration_seconds = round(time.perf_counter() - tests_started_clock, 6)
 
     proposal_step: dict[str, Any] = {
         "status": "not_configured" if not spec.proposals else "offline_fixtures",
         "provider_api_called": False,
         "count": 0,
     }
+    proposals_started_clock = time.perf_counter()
+    proposal_stage_status = "not_configured" if not spec.proposals else "completed"
     if spec.proposals:
         try:
             proposals = collect_offline_proposals(spec)
@@ -558,6 +590,7 @@ def run_problem(
                 if record["status"] == "internal_error":
                     _append_error(errors, "proposals", detail.get("failure_category", "Proposal evaluation failed."))
         except Exception as error:
+            proposal_stage_status = "error"
             message = f"{type(error).__name__}: {error}"
             _append_error(errors, "optional_proposal_generation", message)
             proposal_step.update({"status": "error", "error": message})
@@ -571,6 +604,10 @@ def run_problem(
                         "failure_category": "OPTIONAL_PROPOSAL_GENERATION",
                     }
                 )
+    proposals_duration_seconds = (
+        round(time.perf_counter() - proposals_started_clock, 6)
+        if spec.proposals else None
+    )
 
     outcome = decide(evidence, contract)
     revision = _revision_log(spec, outcome)
@@ -583,6 +620,12 @@ def run_problem(
     budget["usage"]["evaluated_cases"] = completed_count
     finished_at = datetime.now(timezone.utc)
     duration_seconds = round(time.perf_counter() - started_clock, 6)
+    stage_durations_seconds = {
+        "planning": None,
+        "proposals": proposals_duration_seconds,
+        "tests": tests_duration_seconds,
+        "total": duration_seconds,
+    }
     run_status = "complete"
     if outcome.outcome is FinalOutcome.UNRESOLVED:
         run_status = "partial"
@@ -590,6 +633,12 @@ def run_problem(
         run_status = "error"
     elif completed_count < scheduled_count:
         run_status = "partial"
+    stage_status = {
+        "planning": "not_configured",
+        "proposals": proposal_stage_status,
+        "tests": "completed" if completed_count >= scheduled_count else "partial",
+        "total": "error" if run_status == "error" else "partial" if run_status == "partial" else "completed",
+    }
 
     outcome_dict = outcome.to_dict()
     if outcome.counterexample is not None:
@@ -640,6 +689,40 @@ def run_problem(
     unknown_values = []
     if git_revision is None:
         unknown_values.append({"field": "provenance.git_revision", "reason": "Git revision could not be read."})
+    provider_call_count = budget["usage"]["model_calls"]
+    provider_api_called = provider_call_count > 0
+    provider_token_usage = budget["usage"]["provider_reported_token_usage"]
+    pricing_record = (
+        spec.pricing_config.to_record()
+        if spec.pricing_config is not None
+        else {
+            "status": "unknown" if provider_api_called else "not_applicable",
+            "provider_id": None,
+            "model_id": None,
+            "input_usd_per_million_tokens": None,
+            "output_usd_per_million_tokens": None,
+            "source_url": None,
+            "checked_at": None,
+        }
+    )
+    estimated_cost = (
+        0.0 if not provider_api_called
+        else budget["usage"]["cost_estimated_usd"]
+        if spec.pricing_config is not None
+        else None
+    )
+    actual_cost = calculate_actual_cost_usd(
+        provider_token_usage, spec.pricing_config, provider_api_called=provider_api_called
+    )
+    usage_unknown_values = []
+    if provider_token_usage["status"] == "unknown":
+        usage_unknown_values.append("provider_reported_token_usage")
+    if pricing_record["status"] == "unknown":
+        usage_unknown_values.append("pricing")
+    if estimated_cost is None:
+        usage_unknown_values.append("estimated_cost_usd")
+    if actual_cost is None:
+        usage_unknown_values.append("actual_cost_usd")
 
     record_schema = {
         "schema_version": RUN_RECORD_SCHEMA_VERSION,
@@ -721,17 +804,19 @@ def run_problem(
         },
         "revision": revision,
         "usage": {
+            "resource_usage_version": 1,
             "model_call_count": budget["usage"]["model_calls"],
-            "provider_reported_token_usage": {
-                "input_tokens": None,
-                "output_tokens": None,
-                "total_tokens": None,
-                "status": "not_applicable",
-            },
+            "successful_model_call_count": budget["usage"]["successful_calls"],
+            "failed_model_call_count": budget["usage"]["failed_calls"],
+            "retry_call_count": budget["usage"]["retry_calls"],
+            "provider_reported_token_usage": provider_token_usage,
             "duration_seconds": duration_seconds,
-            "estimated_cost_usd": 0.0,
-            "actual_cost_usd": 0.0,
-            "unknown_values": [],
+            "stage_durations_seconds": stage_durations_seconds,
+            "stage_status": stage_status,
+            "pricing": pricing_record,
+            "estimated_cost_usd": estimated_cost,
+            "actual_cost_usd": actual_cost,
+            "unknown_values": usage_unknown_values,
         },
         "budget": budget,
         "errors": errors,
@@ -858,7 +943,11 @@ def _emergency_error_record(
         },
         "revision": {"status": "not_started", "reason": "Pipeline failed before revision processing."},
         "usage": {
+            "resource_usage_version": 1,
             "model_call_count": 0,
+            "successful_model_call_count": 0,
+            "failed_model_call_count": 0,
+            "retry_call_count": 0,
             "provider_reported_token_usage": {
                 "input_tokens": None,
                 "output_tokens": None,
@@ -866,13 +955,35 @@ def _emergency_error_record(
                 "status": "not_applicable",
             },
             "duration_seconds": duration_seconds,
+            "stage_durations_seconds": {
+                "planning": None, "proposals": None, "tests": None, "total": duration_seconds,
+            },
+            "stage_status": {
+                "planning": "not_configured", "proposals": "not_started",
+                "tests": "not_started", "total": "error",
+            },
+            "pricing": {
+                "status": "not_applicable", "provider_id": None, "model_id": None,
+                "input_usd_per_million_tokens": None, "output_usd_per_million_tokens": None,
+                "source_url": None, "checked_at": None,
+            },
             "estimated_cost_usd": 0.0,
             "actual_cost_usd": 0.0,
             "unknown_values": [],
         },
         "budget": {
             "budget_configured": spec.budget_config.to_dict(),
-            "usage": {"rounds": None, "model_calls": 0, "tokens_actual": 0, "cost_actual_usd": 0.0},
+            "usage": {
+                "rounds": None, "model_calls": 0, "successful_calls": 0, "failed_calls": 0,
+                "retry_calls": 0,
+                "tokens_actual": 0, "tokens_actual_status": "not_applicable",
+                "cost_estimated_usd": 0.0, "cost_actual_usd": 0.0,
+                "cost_actual_status": "not_applicable",
+                "provider_reported_token_usage": {
+                    "input_tokens": None, "output_tokens": None, "total_tokens": None,
+                    "status": "not_applicable",
+                },
+            },
             "stop_reason": "pipeline_failure",
             "events": [],
         },
@@ -896,6 +1007,9 @@ def main(argv: list[str] | None = None) -> int:
     show_parser = subparsers.add_parser("show-run", help="open one saved run record by run ID")
     show_parser.add_argument("run_id", help="UUID from list-runs")
     show_parser.add_argument("--runs-dir", type=Path, default=RUNS_DIR)
+    summary_parser = subparsers.add_parser("summarize-runs", help="summarize resource usage across saved runs")
+    summary_parser.add_argument("problem_id", nargs="?", help="optionally summarize one problem")
+    summary_parser.add_argument("--runs-dir", type=Path, default=RUNS_DIR)
     args = parser.parse_args(argv)
 
     if args.command == "list-runs":
@@ -910,6 +1024,15 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(record, indent=2, ensure_ascii=False))
             return 1
         print(json.dumps(record, indent=2, ensure_ascii=False))
+        return 0
+    if args.command == "summarize-runs":
+        entries = list_run_records(args.runs_dir, problem_id=args.problem_id)
+        records = [load_run_record(item["path"]) for item in entries["runs"]]
+        summary = summarize_run_usage(records)
+        summary["problem_id"] = args.problem_id
+        summary["incomplete_run_count"] = len(entries["incomplete"])
+        summary["invalid_file_count"] = len(entries["invalid_files"])
+        print(json.dumps(summary, indent=2, ensure_ascii=False))
         return 0
 
     try:

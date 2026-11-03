@@ -8,14 +8,16 @@ import time
 from dataclasses import dataclass
 from enum import Enum
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 
 if __package__:
     from .log_safety import sanitize_for_log
     from .outcomes import FinalOutcome, OutcomeReason, RunOutcome
+    from .usage_metrics import normalize_provider_usage
 else:
     from log_safety import sanitize_for_log
     from outcomes import FinalOutcome, OutcomeReason, RunOutcome
+    from usage_metrics import normalize_provider_usage
 
 
 class BudgetStopReason(str, Enum):
@@ -86,12 +88,21 @@ class BudgetTracker:
         self._started_at = self._clock()
         self._rounds = 0
         self._model_calls = 0
+        self._successful_calls = 0
         self._retry_calls = 0
         self._failed_calls = 0
         self._tokens_committed = 0
         self._tokens_actual = 0
+        self._actual_tokens_unknown = False
         self._cost_committed = 0.0
+        self._cost_estimated = 0.0
         self._cost_actual = 0.0
+        self._actual_cost_unknown = False
+        self._provider_usage_unknown = False
+        self._provider_usage_seen = 0
+        self._provider_input_tokens = 0
+        self._provider_output_tokens = 0
+        self._provider_total_tokens = 0
         self._current_round: int | None = None
         self._round_call_count = 0
         self._next_call_id = 1
@@ -114,6 +125,10 @@ class BudgetTracker:
     @property
     def retry_calls(self) -> int:
         return self._retry_calls
+
+    @property
+    def successful_calls(self) -> int:
+        return self._successful_calls
 
     def _elapsed(self) -> float:
         return max(0.0, self._clock() - self._started_at)
@@ -210,6 +225,7 @@ class BudgetTracker:
             self._retry_calls += 1
         self._tokens_committed += estimated_tokens
         self._cost_committed += float(estimated_cost_usd)
+        self._cost_estimated += float(estimated_cost_usd)
         self._pending[reservation.call_id] = reservation
         self._events.append(
             {
@@ -247,23 +263,45 @@ class BudgetTracker:
         self,
         reservation: CallReservation,
         *,
-        actual_tokens: int,
-        actual_cost_usd: float,
+        actual_tokens: int | None,
+        actual_cost_usd: float | None,
+        provider_usage: Mapping[str, Any] | None = None,
     ) -> None:
         """Replace estimates with reported usage after a completed call."""
         self._require_pending(reservation)
-        self._validate_estimate(actual_tokens, actual_cost_usd, 0.0)
+        if actual_tokens is not None:
+            self._validate_estimate(actual_tokens, 0.0, 0.0)
+        if actual_cost_usd is not None:
+            self._validate_estimate(0, actual_cost_usd, 0.0)
+        reported_usage = normalize_provider_usage(provider_usage, provider_api_called=True)
         del self._pending[reservation.call_id]
-        self._tokens_committed += actual_tokens - reservation.estimated_tokens
-        self._tokens_actual += actual_tokens
-        self._cost_committed += float(actual_cost_usd) - reservation.estimated_cost_usd
-        self._cost_actual += float(actual_cost_usd)
+        self._successful_calls += 1
+        self._provider_usage_seen += 1
+        if reported_usage["status"] == "known":
+            self._provider_input_tokens += int(reported_usage["input_tokens"])
+            self._provider_output_tokens += int(reported_usage["output_tokens"])
+            self._provider_total_tokens += int(reported_usage["total_tokens"])
+        else:
+            self._provider_usage_unknown = True
+        if actual_tokens is None and reported_usage["status"] == "known":
+            actual_tokens = int(reported_usage["total_tokens"])
+        if actual_tokens is None:
+            self._actual_tokens_unknown = True
+        else:
+            self._tokens_committed += actual_tokens - reservation.estimated_tokens
+            self._tokens_actual += actual_tokens
+        if actual_cost_usd is None:
+            self._actual_cost_unknown = True
+        else:
+            self._cost_committed += float(actual_cost_usd) - reservation.estimated_cost_usd
+            self._cost_actual += float(actual_cost_usd)
         self._events.append(
             {
                 "event": "call_settled",
                 "call_id": reservation.call_id,
                 "actual_tokens": actual_tokens,
-                "actual_cost_usd": round(float(actual_cost_usd), 8),
+                "actual_cost_usd": round(float(actual_cost_usd), 8) if actual_cost_usd is not None else None,
+                "provider_reported_token_usage": reported_usage,
             }
         )
         if self._tokens_committed > self.config.max_tokens:
@@ -279,6 +317,10 @@ class BudgetTracker:
             raise ValueError("A failure category is required.")
         del self._pending[reservation.call_id]
         self._failed_calls += 1
+        self._provider_usage_unknown = True
+        self._provider_usage_seen += 1
+        self._actual_tokens_unknown = True
+        self._actual_cost_unknown = True
         self._events.append(
             {
                 "event": "call_failed",
@@ -325,21 +367,46 @@ class BudgetTracker:
     def to_dict(self, *, evidence_complete: bool = False) -> dict[str, Any]:
         self._check_elapsed()
         outcome = self.outcome_if_incomplete(evidence_complete=evidence_complete)
+        provider_usage_status = (
+            "not_applicable" if self._model_calls == 0
+            else "unknown" if self._provider_usage_unknown or self._provider_usage_seen < self._model_calls
+            else "known"
+        )
+        provider_usage = {
+            "input_tokens": self._provider_input_tokens if provider_usage_status == "known" else None,
+            "output_tokens": self._provider_output_tokens if provider_usage_status == "known" else None,
+            "total_tokens": self._provider_total_tokens if provider_usage_status == "known" else None,
+            "status": provider_usage_status,
+        }
+        actual_tokens_unknown = self._actual_tokens_unknown or self._provider_usage_seen < self._model_calls
+        actual_cost_unknown = self._actual_cost_unknown or self._provider_usage_seen < self._model_calls
         return {
             "budget_configured": self.config.to_dict(),
             "usage": {
                 "rounds": self._rounds,
                 "model_calls": self._model_calls,
+                "successful_calls": self._successful_calls,
                 "retry_calls": self._retry_calls,
                 "failed_calls": self._failed_calls,
                 "tokens_committed_or_reserved": self._tokens_committed,
-                "tokens_actual": self._tokens_actual,
+                "tokens_actual": None if actual_tokens_unknown else self._tokens_actual,
+                "tokens_actual_status": (
+                    "not_applicable" if self._model_calls == 0
+                    else "unknown" if actual_tokens_unknown
+                    else "known"
+                ),
                 "tokens_open_reserved": sum(
                     reservation.estimated_tokens
                     for reservation in self._pending.values()
                 ),
                 "cost_committed_or_reserved_usd": round(self._cost_committed, 8),
-                "cost_actual_usd": round(self._cost_actual, 8),
+                "cost_estimated_usd": round(self._cost_estimated, 8),
+                "cost_actual_usd": None if actual_cost_unknown else round(self._cost_actual, 8),
+                "cost_actual_status": (
+                    "not_applicable" if self._model_calls == 0
+                    else "unknown" if actual_cost_unknown
+                    else "known"
+                ),
                 "cost_open_reserved_usd": round(
                     sum(
                         reservation.estimated_cost_usd
@@ -348,6 +415,7 @@ class BudgetTracker:
                     8,
                 ),
                 "elapsed_seconds": round(self._elapsed(), 6),
+                "provider_reported_token_usage": provider_usage,
             },
             "stop_reason": (
                 self._stop_reason.value if self._stop_reason is not None else None

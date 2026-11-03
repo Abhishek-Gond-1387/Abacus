@@ -102,3 +102,13 @@
 - [x] Apply the sanitizer to versioned run records and budget logs, including emergency run failures.
 - [x] Keep numeric usage counters intact and recompute the dataset hash from the sanitized stored dataset.
 - [x] Document the redaction scope and hash behavior.
+- [x] Trigger a simulated error with a fake environment secret and confirm it is absent from the saved log and captured CLI output.
+
+## Day 32 — Track tokens, calls, time, and cost
+
+- [x] Normalize provider-reported input/output token usage; retain `unknown` when a call has no usage metadata.
+- [x] Record model-call attempts, successful calls, failed calls, and retry attempts separately.
+- [x] Measure planning, proposal, test, and total durations; mark unconfigured stages explicitly.
+- [x] Support model-specific input/output rates with pricing source URL and checked date; leave missing costs unknown.
+- [x] Add a run summary with medians and ranges for measured usage.
+- [x] Test that absent provider usage stays unknown instead of becoming zero.

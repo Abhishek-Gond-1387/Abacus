@@ -19,7 +19,7 @@
 ## Next
 
 - Day 4 completed: staged named files, reviewed the staged diff, and created the first local commit.
-- Day 31 completed: prevent secret leakage in logs.
+- Day 32 completed; next: Day 33 — build a useful run viewer.
 
 ## Day 21 review
 
@@ -82,3 +82,9 @@ Added `list-runs` and `show-run <run_id>` commands. Repeated-run fixtures create
 ## Day 31 secret-safe logs
 
 Added a shared redaction layer at the run-record and budget-log write boundaries. It replaces values in credential-named fields and scrubs labeled key/value text, authorization headers, common provider token formats, private-key blocks, and configured secret values found in the process environment. Run records are also sanitized before being returned from the pipeline. Numeric token-usage counters stay intact. Because redaction can change proposal text stored in the dataset, the dataset SHA-256 is recomputed from the sanitized body; the problem-spec SHA-256 remains the original input fingerprint. This catches recognized patterns and named fields, not arbitrary unmarked secret text.
+
+The fake secret sentinel is split in the fixture source, injected through a sensitive environment variable, and confirmed absent from the saved error log and captured CLI output.
+
+## Day 32 resource usage
+
+Added provider token-usage normalization for common input/output field names. When calls exist but usage is missing, token and cost values remain unknown; zero is reported only for a run with no provider calls. Budget tracking now separates call attempts, successful calls, failures, and retries, and keeps provider-reported token totals distinct from estimates. Run records include planning/proposal/test/total durations and an optional model-specific pricing snapshot with its source URL and checked date. `summarize-runs` reports median/range metrics across saved runs. This pilot still makes no provider calls, so its API tokens and pricing are not applicable. Pricing is not prefilled because no provider/model has been selected.

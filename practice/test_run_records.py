@@ -68,6 +68,36 @@ class RunRecordSchemaTests(unittest.TestCase):
         with self.assertRaisesRegex(RunRecordValidationError, "dataset_sha256"):
             validate_run_record(record)
 
+    def test_missing_provider_usage_and_price_are_unknown_not_zero(self) -> None:
+        record = complete_sample()
+        record["model"]["provider_api_called"] = True
+        record["model"]["provider_identity_status"] = "configured_provider"
+        record["usage"].update({
+            "model_call_count": 1,
+            "successful_model_call_count": 1,
+            "provider_reported_token_usage": {
+                "input_tokens": None, "output_tokens": None, "total_tokens": None,
+                "status": "unknown",
+            },
+            "pricing": {
+                "status": "unknown", "provider_id": None, "model_id": None,
+                "input_usd_per_million_tokens": None, "output_usd_per_million_tokens": None,
+                "source_url": None, "checked_at": None,
+            },
+            "estimated_cost_usd": None,
+            "actual_cost_usd": None,
+            "unknown_values": [
+                "provider_reported_token_usage", "pricing", "estimated_cost_usd", "actual_cost_usd",
+            ],
+        })
+        record["budget"]["usage"].update({"model_calls": 1, "successful_calls": 1})
+        validated = validate_run_record(record)
+        self.assertIsNone(validated["usage"]["actual_cost_usd"])
+
+        record["usage"]["actual_cost_usd"] = 0.0
+        with self.assertRaisesRegex(RunRecordValidationError, "pricing is unknown"):
+            validate_run_record(record)
+
 
 if __name__ == "__main__":
     unittest.main()

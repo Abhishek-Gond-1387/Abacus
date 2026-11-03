@@ -13,6 +13,7 @@ from uuid import UUID, uuid4
 from typing import Any
 
 from .log_safety import sanitize_for_log
+from .usage_metrics import PricingConfig
 
 
 RUN_RECORD_SCHEMA_VERSION = 2
@@ -308,6 +309,70 @@ def validate_run_record(record: Any) -> dict[str, Any]:
         {"model_call_count", "provider_reported_token_usage", "duration_seconds", "estimated_cost_usd", "actual_cost_usd", "unknown_values"},
     )
     _nonnegative_int(usage["model_call_count"], "usage.model_call_count")
+    resource_usage_version = usage.get("resource_usage_version")
+    if resource_usage_version is not None and (type(resource_usage_version) is not int or resource_usage_version != 1):
+        raise RunRecordValidationError("usage.resource_usage_version must be 1 when present.")
+    if resource_usage_version == 1:
+        required_resource_fields = {
+            "successful_model_call_count", "failed_model_call_count", "retry_call_count", "stage_durations_seconds",
+            "stage_status", "pricing",
+        }
+        missing_resource_fields = required_resource_fields - usage.keys()
+        if missing_resource_fields:
+            raise RunRecordValidationError(
+                "usage resource metrics are missing: " + ", ".join(sorted(missing_resource_fields)) + "."
+            )
+        _nonnegative_int(usage["successful_model_call_count"], "usage.successful_model_call_count")
+        _nonnegative_int(usage["failed_model_call_count"], "usage.failed_model_call_count")
+        _nonnegative_int(usage["retry_call_count"], "usage.retry_call_count")
+        if (
+            usage["successful_model_call_count"] > usage["model_call_count"]
+            or usage["failed_model_call_count"] > usage["model_call_count"]
+            or usage["retry_call_count"] > usage["model_call_count"]
+            or usage["successful_model_call_count"] + usage["failed_model_call_count"] > usage["model_call_count"]
+        ):
+            raise RunRecordValidationError("Call outcomes and retries cannot exceed model call attempts.")
+        stage_durations = _object(
+            usage["stage_durations_seconds"], "usage.stage_durations_seconds",
+            {"planning", "proposals", "tests", "total"},
+        )
+        for stage, duration in stage_durations.items():
+            if duration is not None:
+                _finite_number(duration, f"usage.stage_durations_seconds.{stage}")
+        stage_status = _object(
+            usage["stage_status"], "usage.stage_status", {"planning", "proposals", "tests", "total"}
+        )
+        for stage, status in stage_status.items():
+            _text(status, f"usage.stage_status.{stage}")
+        pricing = _object(
+            usage["pricing"], "usage.pricing",
+            {
+                "status", "provider_id", "model_id", "input_usd_per_million_tokens",
+                "output_usd_per_million_tokens", "source_url", "checked_at",
+            },
+        )
+        if type(pricing["status"]) is not str or pricing["status"] not in {"configured", "unknown", "not_applicable"}:
+            raise RunRecordValidationError("usage.pricing.status is not recognized.")
+        if pricing["status"] == "configured":
+            try:
+                PricingConfig(
+                    provider_id=pricing["provider_id"],
+                    model_id=pricing["model_id"],
+                    input_usd_per_million_tokens=pricing["input_usd_per_million_tokens"],
+                    output_usd_per_million_tokens=pricing["output_usd_per_million_tokens"],
+                    source_url=pricing["source_url"],
+                    checked_at=pricing["checked_at"],
+                )
+            except (TypeError, ValueError) as error:
+                raise RunRecordValidationError(f"usage.pricing is invalid: {error}") from error
+        elif any(
+            pricing[key] is not None
+            for key in (
+                "provider_id", "model_id", "input_usd_per_million_tokens",
+                "output_usd_per_million_tokens", "source_url", "checked_at",
+            )
+        ):
+            raise RunRecordValidationError("Unknown or not-applicable pricing must not include guessed values.")
     _finite_number(usage["duration_seconds"], "usage.duration_seconds")
     _finite_number(usage["estimated_cost_usd"], "usage.estimated_cost_usd", nullable=True)
     _finite_number(usage["actual_cost_usd"], "usage.actual_cost_usd", nullable=True)
@@ -324,6 +389,22 @@ def validate_run_record(record: Any) -> dict[str, Any]:
         raise RunRecordValidationError("Known token usage requires input, output, and total counts.")
     if token_usage["status"] == "not_applicable" and model["provider_api_called"]:
         raise RunRecordValidationError("Provider token usage cannot be not_applicable when an API call occurred.")
+    if resource_usage_version == 1:
+        has_calls = usage["model_call_count"] > 0
+        if model["provider_api_called"] != has_calls:
+            raise RunRecordValidationError("provider_api_called must match the recorded model call count.")
+        if has_calls == (token_usage["status"] == "not_applicable"):
+            raise RunRecordValidationError("Token usage must be not_applicable exactly when no provider call occurred.")
+        pricing_status = usage["pricing"]["status"]
+        if has_calls and pricing_status == "not_applicable":
+            raise RunRecordValidationError("Pricing cannot be not_applicable when provider calls occurred.")
+        if not has_calls and pricing_status == "unknown":
+            raise RunRecordValidationError("Missing pricing is not unknown when no provider calls occurred.")
+        if has_calls and pricing_status == "unknown":
+            if usage["estimated_cost_usd"] is not None or usage["actual_cost_usd"] is not None:
+                raise RunRecordValidationError("Provider cost cannot be zero/known when pricing is unknown.")
+            if "pricing" not in usage["unknown_values"]:
+                raise RunRecordValidationError("Unknown provider pricing must be listed in usage.unknown_values.")
     if usage["estimated_cost_usd"] is None and "estimated_cost_usd" not in usage["unknown_values"]:
         raise RunRecordValidationError("Unknown estimated cost must be listed in usage.unknown_values.")
     if usage["actual_cost_usd"] is None and "actual_cost_usd" not in usage["unknown_values"]:
@@ -331,6 +412,16 @@ def validate_run_record(record: Any) -> dict[str, Any]:
 
     if type(result["budget"]) is not dict:
         raise RunRecordValidationError("budget must be an object.")
+    if resource_usage_version == 1 and type(result["budget"].get("usage")) is dict:
+        budget_usage = result["budget"]["usage"]
+        for record_key, budget_key in (
+            ("model_call_count", "model_calls"),
+            ("successful_model_call_count", "successful_calls"),
+            ("failed_model_call_count", "failed_calls"),
+            ("retry_call_count", "retry_calls"),
+        ):
+            if budget_key in budget_usage and budget_usage[budget_key] != usage[record_key]:
+                raise RunRecordValidationError(f"usage.{record_key} does not match budget.usage.{budget_key}.")
     for index, unknown in enumerate(result["unknown_values"]):
         item = _object(unknown, f"unknown_values[{index}]", {"field", "reason"})
         _text(item["field"], f"unknown_values[{index}].field")

@@ -52,8 +52,55 @@ class BudgetTrackerTests(unittest.TestCase):
         self.assertEqual(log["usage"]["retry_calls"], 1)
         self.assertEqual(log["usage"]["failed_calls"], 1)
         self.assertEqual(log["usage"]["tokens_committed_or_reserved"], 30)
-        self.assertEqual(log["usage"]["tokens_actual"], 10)
+        self.assertEqual(log["usage"]["successful_calls"], 1)
+        self.assertIsNone(log["usage"]["tokens_actual"])
+        self.assertEqual(log["usage"]["tokens_actual_status"], "unknown")
+        self.assertEqual(log["usage"]["provider_reported_token_usage"]["status"], "unknown")
         self.assertIsNone(log["run_outcome"])
+
+    def test_missing_provider_usage_is_unknown_and_not_zero(self) -> None:
+        tracker = BudgetTracker(BudgetConfig(1, 10, 2, 100, 1.0), clock=lambda: 0.0)
+        self.assertTrue(tracker.start_round())
+        reservation = tracker.reserve_call(
+            estimated_tokens=20,
+            estimated_cost_usd=0.2,
+            estimated_duration_seconds=1,
+        )
+        tracker.settle_call(reservation, actual_tokens=None, actual_cost_usd=None)
+        tracker.finish_round()
+
+        usage = tracker.to_dict()["usage"]
+        self.assertEqual(usage["model_calls"], 1)
+        self.assertEqual(usage["successful_calls"], 1)
+        self.assertEqual(usage["retry_calls"], 0)
+        self.assertEqual(usage["provider_reported_token_usage"]["status"], "unknown")
+        self.assertIsNone(usage["provider_reported_token_usage"]["input_tokens"])
+        self.assertEqual(usage["tokens_actual_status"], "unknown")
+        self.assertIsNone(usage["cost_actual_usd"])
+        self.assertEqual(usage["cost_actual_status"], "unknown")
+
+    def test_provider_usage_is_aggregated_from_successful_responses(self) -> None:
+        tracker = BudgetTracker(BudgetConfig(1, 10, 2, 100, 1.0), clock=lambda: 0.0)
+        self.assertTrue(tracker.start_round())
+        reservation = tracker.reserve_call(
+            estimated_tokens=20,
+            estimated_cost_usd=0.2,
+            estimated_duration_seconds=1,
+        )
+        tracker.settle_call(
+            reservation,
+            actual_tokens=None,
+            actual_cost_usd=0.1,
+            provider_usage={"prompt_tokens": 8, "completion_tokens": 2},
+        )
+        tracker.finish_round()
+
+        usage = tracker.to_dict()["usage"]
+        self.assertEqual(usage["successful_calls"], 1)
+        self.assertEqual(usage["provider_reported_token_usage"], {
+            "input_tokens": 8, "output_tokens": 2, "total_tokens": 10, "status": "known",
+        })
+        self.assertEqual(usage["tokens_actual"], 10)
 
     def test_tiny_token_budget_blocks_call_and_returns_unresolved(self) -> None:
         tracker = BudgetTracker(

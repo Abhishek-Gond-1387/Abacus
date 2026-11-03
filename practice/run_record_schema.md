@@ -17,12 +17,14 @@
 | `replay_details` | Replayed test IDs, inputs, reproduced outputs, and confirmation status. |
 | `outcome` | Run-level outcome and required reason, message, methods/count, and evidence references. REFUTED includes its replay-confirmed counterexample. |
 | `completion` | `complete`, `partial`, or `error`, scheduled/completed counts, and explicit incomplete reasons. This is separate from the verdict: a refutation can remain conclusive if later checks stop. |
-| `usage` and `budget` | Model-call count, provider-reported tokens, measured duration, estimated/actual cost, configured limits, and explicit unknown values. With no provider call, provider token use is marked `not_applicable`; unavailable values must be named in `unknown_values`. |
+| `usage` and `budget` | Model-call attempts, successful/failed/retry counts, provider-reported input/output/total tokens, per-stage and total duration, dated pricing snapshot, estimated/actual cost, configured limits, and explicit unknown values. With no provider call, token use and pricing are `not_applicable`; a call without usage or price metadata is `unknown`, never guessed as zero. |
 | `revision` and `errors` | Optional separate claim revision and structured errors. Revision never replaces the scored original claim. |
 
 SHA-256 values use canonical UTF-8 JSON with sorted keys and compact separators for problem/dataset data. Target hashes cover the allowlisted function source. `run_status` describes execution completeness; `outcome.outcome` describes the evidence verdict.
 
 Before a run record is written, credential-like fields and recognizable secrets in text are redacted. Budget logs use the same text/field sanitizer. The stored `dataset_sha256` is recalculated from the redacted dataset body so validation still succeeds; `problem_spec_sha256` remains the SHA-256 fingerprint of the original problem input and does not contain its plaintext.
+
+New resource fields use `usage.resource_usage_version: 1`; older schema-v2 records without that marker remain loadable. Provider usage accepts `input_tokens`/`output_tokens` and the common `prompt_tokens`/`completion_tokens` aliases. Add an optional `pricing` object to a problem only after checking a provider's current official pricing page; the record stores the URL and `checked_at` date. `python -m abacus summarize-runs [problem_id]` reports per-run medians and ranges and keeps unknown/not-applicable counts distinct.
 
 ## Samples
 
