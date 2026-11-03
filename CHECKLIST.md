@@ -258,3 +258,13 @@
 - [x] Pin tracked `.yml` files to LF with `.gitattributes` so Windows checkouts satisfy yamllint.
 - [x] Record the GitHub Actions findings and fix in `NOTES.md`.
 - [ ] Push the fix and confirm the latest Linux and Windows matrix jobs pass.
+
+## Day 49 — Add an explicit hosted-provider client
+
+- [x] Implement Gemini and OpenAI-compatible clients without changing the default offline proposal path.
+- [x] Require an explicit API key; keep client creation local and send requests only from `complete()`.
+- [x] Bound request timeout, SDK retries, output tokens, and response bytes.
+- [x] Map refusal and provider failures to safe categories without copying provider response bodies into errors.
+- [x] Document provider configuration, opt-in behavior, and strict output parsing.
+- [x] Compile changed Python code and pass `git diff --check`.
+- [ ] Push the accumulated Day 48–49 commits and confirm all four hosted CI jobs pass.

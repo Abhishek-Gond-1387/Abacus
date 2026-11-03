@@ -1,6 +1,6 @@
 # Abacus
 
-Abacus is a research prototype for checking precise claims about Python functions. It searches for candidate counterexamples and uses trusted checks to decide what the evidence supports. A passing finite test run is not a proof of correctness. This repository tracks the Day 1–47 learning work.
+Abacus is a research prototype for checking precise claims about Python functions. It searches for candidate counterexamples and uses trusted checks to decide what the evidence supports. A passing finite test run is not a proof of correctness. This repository tracks the Day 1–49 learning work.
 
 The Day 1–3 exercises use Python's standard library. Day 5 and Day 6 use the OpenAI-compatible Python SDK and `python-dotenv`; Gemini is the default provider, with OpenAI available as an optional provider. Day 6 puts live requests behind a reusable helper and includes an offline stub.
 
@@ -439,3 +439,13 @@ Remove-Item Env:PYYAML_FORCE_LIBYAML
 ```
 
 The environment setting makes PyYAML use its pure-Python parser when installing the linter under Python 3.15, avoiding a local C++ compiler requirement. It is only needed for this optional lint install; normal runtime and dev requirements do not include PyYAML.
+
+## Day 48 cross-platform YAML line endings
+
+`.gitattributes` pins `.yml` files to LF so Windows checkouts do not convert GitHub Actions and Dependabot configuration files to CRLF. The strict YAML linter checks both files on every CI matrix job.
+
+## Day 49 explicit hosted-provider client
+
+`abacus.llm.create_llm_client()` creates a Gemini or OpenAI-compatible client from `ABACUS_LLM_PROVIDER` and the matching API key in the process environment or ignored project `.env`. Creating the client makes no request. Only calling `complete(prompt, model_id=...)` sends the prompt; it uses a bounded timeout, disables hidden SDK retries, caps output tokens and response bytes, and returns untrusted text for validation with `abacus.schemas.parse_model_output`. The caller supplies the model ID from its own approved configuration.
+
+Provider calls send prompt content to the selected service and may use account quota or incur charges. Keep the offline fixtures as the default workflow and never send secrets or private data in prompts. Gemini's OpenAI-compatible endpoint is documented by [Google](https://ai.google.dev/gemini-api/docs/openai); client timeout and retry settings follow the [official OpenAI Python library](https://github.com/openai/openai-python).
