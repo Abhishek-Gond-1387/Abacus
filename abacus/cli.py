@@ -1032,6 +1032,11 @@ def main(argv: list[str] | None = None) -> int:
         required=True,
         help="required confirmation; sends the claim and test context to the configured provider",
     )
+    suggest_parser.add_argument(
+        "--evaluate-proposals",
+        action="store_true",
+        help="evaluate parsed candidate inputs with the registered local target and oracle",
+    )
     untrusted_parser = subparsers.add_parser(
         "execute-untrusted",
         help="run a candidate(value) function only through the verified container sandbox",
@@ -1124,6 +1129,13 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     if args.command == "model-suggest":
+        if args.evaluate_proposals and args.kind != "candidate_proposals":
+            print(json.dumps({
+                "status": "invalid_request",
+                "provider_api_called": False,
+                "error": "--evaluate-proposals requires --kind candidate_proposals.",
+            }, ensure_ascii=False))
+            return 2
         if not args.model.strip():
             print(json.dumps({
                 "status": "invalid_request",
@@ -1190,7 +1202,7 @@ def main(argv: list[str] | None = None) -> int:
                 except Exception:
                     pass
 
-        print(json.dumps({
+        output = {
             "status": "suggestions_ready",
             "output_kind": args.kind,
             "template_version": HOSTED_PROMPT_TEMPLATE_VERSIONS[args.kind],
@@ -1199,7 +1211,42 @@ def main(argv: list[str] | None = None) -> int:
             "usage_recorded": False,
             "suggestions_are_evidence": False,
             "result": asdict(result),
-        }, indent=2, ensure_ascii=False))
+        }
+        if args.evaluate_proposals:
+            evaluated: list[dict[str, Any]] = []
+            for index, proposal in enumerate(result.proposals, start=1):
+                candidate = list(proposal.input)
+                item: dict[str, Any] = {
+                    "proposal_index": index,
+                    "input": candidate,
+                    "rationale": proposal.rationale,
+                    "contract_status": "valid",
+                    "evaluation_status": "not_run",
+                    "evidence": None,
+                }
+                if not spec.allow_empty and not candidate:
+                    item.update({
+                        "contract_status": "rejected",
+                        "evaluation_status": "not_run",
+                        "failure_category": "empty_input_not_allowed",
+                    })
+                else:
+                    evidence, _detail = _evidence_for_case(
+                        spec=spec,
+                        method="hosted_model_proposal",
+                        test_id=f"hosted-proposal-{index}",
+                        value=candidate,
+                    )
+                    item["evaluation_status"] = evidence.get("category", evidence.get("status"))
+                    item["evidence"] = evidence
+                evaluated.append(item)
+            output["proposal_evaluation"] = {
+                "status": "completed",
+                "evaluator": "registered_local_target_and_oracle",
+                "results_saved": False,
+                "results": evaluated,
+            }
+        print(json.dumps(output, indent=2, ensure_ascii=False))
         return 0
 
     requested_log_path = Path(args.output) if args.output else None

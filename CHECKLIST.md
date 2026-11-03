@@ -313,3 +313,14 @@
 - [x] Document provider cost/data flow and the local prompt-preview command.
 - [x] Compile changed Python code and pass `git diff --check`.
 - [ ] Push the Day 53 commit and confirm all four hosted CI jobs pass.
+
+## Day 54 — Evaluate hosted candidate inputs locally
+
+- [x] Add an opt-in `--evaluate-proposals` flag, restricted to `candidate_proposals`.
+- [x] Evaluate only strictly parsed integer arrays with the problem's allowlisted local target and oracle.
+- [x] Reject empty arrays when the problem contract disallows them, without running the target.
+- [x] Return per-input evidence separately without saving it or changing an overall verdict.
+- [x] Document the PowerShell command, explicit provider request, and evaluation boundary.
+- [x] Compile the changed Python module and pass `git diff --check`.
+- [x] Commit the Day 54 changes locally.
+- [ ] Push the Day 54 commit to `origin` and confirm all four hosted CI jobs pass.
