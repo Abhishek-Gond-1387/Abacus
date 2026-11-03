@@ -77,6 +77,33 @@ def _evidence_for_case(
     )
 
 
+def _hosted_request_metadata(
+    *, spec: ProblemSpec, kind: str, model_id: str, prompt: str, client: Any
+) -> dict[str, Any]:
+    """Build a privacy-safe fingerprint and record the effective local request limits."""
+    parameters_reader = getattr(client, "audit_metadata", None)
+    client_metadata = parameters_reader() if callable(parameters_reader) else {}
+    if type(client_metadata) is not dict:
+        client_metadata = {}
+    prompt_bytes = prompt.encode("utf-8")
+    request_parameters = {
+        key: value for key, value in client_metadata.items() if key != "provider_id"
+    }
+    return {
+        "request_started_at_utc": datetime.now(timezone.utc).isoformat(),
+        "provider_id": client_metadata.get("provider_id"),
+        "model_id": model_id.strip(),
+        "problem_id": spec.problem_id,
+        "dataset_version": spec.dataset_version,
+        "problem_spec_sha256": spec.problem_spec_sha256,
+        "dataset_sha256": spec.dataset_sha256,
+        "prompt_template_version": HOSTED_PROMPT_TEMPLATE_VERSIONS[kind],
+        "prompt_sha256": hashlib.sha256(prompt_bytes).hexdigest(),
+        "prompt_bytes": len(prompt_bytes),
+        "request_parameters": request_parameters or None,
+    }
+
+
 def _revision_log(spec: ProblemSpec, outcome: Any) -> dict[str, Any]:
     if outcome.outcome is not FinalOutcome.REFUTED:
         return {"status": "skipped", "reason": "Revision requires a confirmed REFUTED result."}
@@ -1163,6 +1190,13 @@ def main(argv: list[str] | None = None) -> int:
             }, ensure_ascii=False))
             return 2
 
+        request_metadata = _hosted_request_metadata(
+            spec=spec,
+            kind=args.kind,
+            model_id=args.model,
+            prompt=prompt,
+            client=client,
+        )
         try:
             result = complete_structured_output(
                 client,
@@ -1174,6 +1208,7 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps({
                 "status": "not_configured",
                 "provider_api_called": False,
+                "request_metadata": request_metadata,
                 "error": str(error),
             }, ensure_ascii=False))
             return 2
@@ -1184,6 +1219,7 @@ def main(argv: list[str] | None = None) -> int:
                 "model_id": args.model,
                 "provider_api_called": True,
                 "usage_recorded": False,
+                "request_metadata": request_metadata,
                 "error_category": error.category,
             }, ensure_ascii=False))
             return 1
@@ -1191,6 +1227,7 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps({
                 "status": "invalid_request",
                 "provider_api_called": False,
+                "request_metadata": request_metadata,
                 "error": str(error),
             }, ensure_ascii=False))
             return 2
@@ -1209,6 +1246,7 @@ def main(argv: list[str] | None = None) -> int:
             "model_id": args.model,
             "provider_api_called": True,
             "usage_recorded": False,
+            "request_metadata": request_metadata,
             "suggestions_are_evidence": False,
             "result": asdict(result),
         }

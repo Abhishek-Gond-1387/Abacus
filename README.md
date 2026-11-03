@@ -1,6 +1,6 @@
 # Abacus
 
-Abacus is a research prototype for checking precise claims about Python functions. It searches for candidate counterexamples and uses trusted checks to decide what the evidence supports. A passing finite test run is not a proof of correctness. This repository tracks the Day 1–54 learning work.
+Abacus is a research prototype for checking precise claims about Python functions. It searches for candidate counterexamples and uses trusted checks to decide what the evidence supports. A passing finite test run is not a proof of correctness. This repository tracks the Day 1–55 learning work.
 
 The Day 1–3 exercises use Python's standard library. Day 5 and Day 6 use the OpenAI-compatible Python SDK and `python-dotenv`; Gemini is the default provider, with OpenAI available as an optional provider. Day 6 puts live requests behind a reusable helper and includes an offline stub.
 
@@ -487,3 +487,7 @@ For `candidate_proposals`, add `--evaluate-proposals` to check each parsed integ
 ```
 
 The explicit provider request behavior and possible quota or charges are the same as Day 53. Evaluation rejects empty arrays when the contract disallows them, and it runs only parsed integer inputs against the allowlisted target/oracle; no model-generated code is executed. Per-input evidence is returned in the command output but is not saved, added to an overall verdict, or a proof. `--evaluate-proposals` is valid only with `--kind candidate_proposals`; without it, the command returns suggestions without local evaluation.
+
+## Day 55 hosted request audit metadata
+
+The JSON success and provider-error outputs from `model-suggest` include `request_metadata`: provider and model IDs, problem and dataset hashes, the prompt template version, prompt SHA-256 and byte count, request start time, timeout, retry count, output-token cap, and sampling-default marker. This supports comparing or identifying the exact request context without printing the prompt body or credentials. Usage and cost are still not recorded, and the metadata does not make a hosted response reproducible because provider behavior may vary.

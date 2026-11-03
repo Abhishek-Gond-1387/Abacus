@@ -106,9 +106,26 @@ def complete_structured_output(
 class OpenAICompatibleLLMClient:
     """A bounded Gemini/OpenAI chat client. Construction is local; `complete` sends a request."""
 
-    def __init__(self, provider: str, client: Any) -> None:
+    def __init__(
+        self,
+        provider: str,
+        client: Any,
+        *,
+        timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
+    ) -> None:
         self._provider = provider
         self._client = client
+        self._timeout_seconds = timeout_seconds
+
+    def audit_metadata(self) -> dict[str, Any]:
+        """Return request limits safe to record; never include endpoint credentials."""
+        return {
+            "provider_id": self._provider,
+            "timeout_seconds": self._timeout_seconds,
+            "automatic_retries": 0,
+            "max_output_tokens": MAX_OUTPUT_TOKENS,
+            "sampling_parameters": "provider_defaults",
+        }
 
     def complete(self, prompt: str, *, model_id: str) -> str:
         _validate_prompt(prompt)
@@ -241,7 +258,7 @@ def create_llm_client() -> LLMClient:
     if provider == "gemini":
         client_options["base_url"] = GEMINI_OPENAI_BASE_URL
     client = OpenAI(**client_options)
-    return OpenAICompatibleLLMClient(provider, client)
+    return OpenAICompatibleLLMClient(provider, client, timeout_seconds=timeout_seconds)
 
 
 def collect_offline_proposals(spec: ProblemSpec) -> list[dict[str, Any]]:

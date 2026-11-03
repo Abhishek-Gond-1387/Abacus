@@ -312,7 +312,8 @@
 - [x] Report safe failure categories; do not persist raw responses or usage/cost data, apply suggestions, or treat them as evidence.
 - [x] Document provider cost/data flow and the local prompt-preview command.
 - [x] Compile changed Python code and pass `git diff --check`.
-- [ ] Push the Day 53 commit and confirm all four hosted CI jobs pass.
+- [x] Confirm the Day 53 commit is present on remote-tracking `origin/main`.
+- [ ] Confirm all four hosted CI jobs pass.
 
 ## Day 54 — Evaluate hosted candidate inputs locally
 
@@ -323,4 +324,15 @@
 - [x] Document the PowerShell command, explicit provider request, and evaluation boundary.
 - [x] Compile the changed Python module and pass `git diff --check`.
 - [x] Commit the Day 54 changes locally.
-- [ ] Push the Day 54 commit to `origin` and confirm all four hosted CI jobs pass.
+- [x] Confirm the Day 54 commit is present on remote-tracking `origin/main`.
+- [ ] Confirm all four hosted CI jobs pass.
+
+## Day 55 — Record privacy-safe hosted request metadata
+
+- [x] Include a SHA-256 fingerprint and UTF-8 byte count for the exact generated prompt.
+- [x] Record provider/model IDs, problem/dataset hashes, template version, start time, timeout, retry count, output-token cap, and sampling defaults.
+- [x] Include request metadata in success and provider-error JSON without prompt text or credentials.
+- [x] Document what the audit metadata identifies and its reproducibility limits.
+- [x] Compile changed Python modules and pass `git diff --check`.
+- [x] Commit the Day 55 changes locally.
+- [ ] Push the Day 55 commit to `origin` and confirm all four hosted CI jobs pass.
