@@ -1,6 +1,7 @@
 {
   "schema_version": 1,
   "problem_id": "p02_false_sort",
+  "dataset_version": "sort-cases-v1",
   "claim": "The function returns every input integer in ascending order and preserves duplicates.",
   "target": {
     "id": "sort_drops_duplicates"

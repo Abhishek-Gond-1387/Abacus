@@ -2,7 +2,7 @@
 
 Abacus is a research prototype for checking precise claims about Python functions. It will search for candidate counterexamples and use trusted checks to decide what the evidence supports. A passing finite test run is not a proof of correctness.
 
-This repository contains the Day 1–3 setup and Python practice exercises, plus Day 21–27 review work from the 56-day build plan. The comparison review uses Hypothesis for bounded case generation.
+This repository contains the Day 1–3 setup and Python practice exercises, plus Day 21–29 review work from the 56-day build plan. The comparison review uses Hypothesis for bounded case generation.
 
 ## Run the exercises
 
@@ -93,3 +93,7 @@ Problem files are validated before evaluation. Targets and oracles are selected 
 ## Day 28 verdict semantics
 
 The run-level meanings and annotated examples for REFUTED, TESTS_PASSED, UNRESOLVED, and ERROR are recorded in practice/verdict_semantics.md. A case-level CASE_PASSED is not a run-level verdict. PROVEN remains reserved for formal proof evidence.
+
+## Day 29 versioned run records
+
+New CLI runs use schema version 2, including run UUID, dataset/version and code hashes, claim/contract, generation settings and seeds, proposals/candidates, oracle/replay evidence, outcome references, software/Git provenance, and usage/budget fields. See practice/run_record_schema.md. Regenerate the validated complete/partial examples with `python -m practice.day29_record_examples`; validate fixtures with `python -m unittest practice.test_run_records`.

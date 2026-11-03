@@ -5,11 +5,13 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest import mock
 
 from abacus import cli
 from abacus.cli import ProblemValidationError, load_problem, parse_problem, run_problem
+from practice.run_records import validate_run_record
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -24,11 +26,15 @@ class Day27PipelineTests(unittest.TestCase):
             record = run_problem(spec, log_path)
             saved = json.loads(log_path.read_text(encoding="utf-8"))
 
-        self.assertEqual(record["run_outcome"]["outcome"], "TESTS_PASSED")
-        self.assertEqual(record["run_outcome"]["test_count"], 31)
-        self.assertEqual(saved["run_outcome"]["outcome"], "TESTS_PASSED")
-        self.assertFalse(saved["proposal_step"]["provider_api_called"])
-        self.assertTrue(all(not item["applied_as_fact"] for item in saved["plan_suggestions"]))
+        self.assertEqual(record["outcome"]["outcome"], "TESTS_PASSED")
+        self.assertEqual(record["outcome"]["test_count"], 31)
+        self.assertEqual(saved["outcome"]["outcome"], "TESTS_PASSED")
+        self.assertEqual(saved["schema_version"], 2)
+        self.assertTrue(saved["run_id"])
+        self.assertFalse(saved["model"]["provider_api_called"])
+        self.assertTrue(all(not item["applied_as_fact"] for item in saved["model"]["plan_suggestions"]))
+        self.assertTrue(saved["problem"]["dataset_sha256"])
+        self.assertTrue(saved["target"]["code_sha256"])
         self.assertEqual(saved["budget"]["usage"]["model_calls"], 0)
 
     def test_false_example_is_refuted_only_after_confirmed_replay(self) -> None:
@@ -36,13 +42,13 @@ class Day27PipelineTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             record = run_problem(spec, Path(directory) / "false-run.json")
 
-        outcome = record["run_outcome"]
+        outcome = record["outcome"]
         self.assertEqual(outcome["outcome"], "REFUTED")
         self.assertEqual(outcome["reason"], "confirmed_counterexample")
         self.assertTrue(outcome["counterexample"]["replay_confirmed"])
         self.assertNotEqual(outcome["counterexample"]["actual"], outcome["counterexample"]["expected"])
         self.assertEqual(record["revision"]["status"], "applied_offline_fixture")
-        self.assertEqual(record["revision"]["scored_claim"], record["claim"])
+        self.assertEqual(record["revision"]["scored_claim"], record["problem"]["original_claim"])
         self.assertEqual(record["revision"]["scored_label"], "REFUTED")
         self.assertFalse(record["revision"]["provider_api_called"])
 
@@ -61,11 +67,24 @@ class Day27PipelineTests(unittest.TestCase):
                 result = run_problem(spec, path)
             saved = json.loads(path.read_text(encoding="utf-8"))
 
-        self.assertEqual(result["run_outcome"]["outcome"], "ERROR")
-        self.assertEqual(saved["proposal_step"]["status"], "error")
+        self.assertEqual(result["outcome"]["outcome"], "ERROR")
+        self.assertEqual(saved["model"]["proposal_step"]["status"], "error")
         self.assertEqual(saved["errors"][0]["step"], "optional_proposal_generation")
         self.assertIn("budget", saved)
         self.assertEqual(saved["budget"]["usage"]["model_calls"], 0)
+
+    def test_emergency_pipeline_error_uses_valid_versioned_record(self) -> None:
+        spec = load_problem(PROBLEMS / "p01_true_sort.json")
+        record = cli._emergency_error_record(
+            spec,
+            RuntimeError("unexpected local failure"),
+            started_at=datetime.now(timezone.utc),
+            duration_seconds=0.01,
+        )
+        self.assertEqual(record["schema_version"], 2)
+        self.assertEqual(record["outcome"]["outcome"], "ERROR")
+        self.assertEqual(record["outcome"]["evidence_references"], ["error:pipeline-error"])
+        self.assertIs(validate_run_record(record), record)
 
 
 if __name__ == "__main__":

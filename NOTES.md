@@ -19,7 +19,7 @@
 ## Next
 
 - Day 4 completed: staged named files, reviewed the staged diff, and created the first local commit.
-- Day 28 completed; Day 29: design a complete run record.
+- Day 29 completed; Day 30: save runs atomically and uniquely.
 
 ## Day 21 review
 
@@ -66,3 +66,9 @@ The true sorting fixture finished 31 checks as TESTS_PASSED. The duplicate-remov
 Recorded the run-level meanings of REFUTED, TESTS_PASSED, UNRESOLVED, and ERROR with compact examples from the Day 27 logs and policy shapes. `CASE_PASSED` and `PROPERTY_VIOLATION` remain case-level labels. A finite test pass is explicitly not a proof; PROVEN remains reserved for identified formal proof evidence. The refutation example names the input, actual output, expected output, and successful replay. The false example's revision keeps the original scored claim and REFUTED label intact.
 
 Open design questions for later work: should rejected problem files produce a distinct validation record/log; should unexpected pipeline exceptions use the same complete versioned record and budget fields as normal runs; what evidence is sufficient to set an oracle as usable; and what formal proof artifact format/version should be required before any path can issue PROVEN? These are recorded as questions and do not change the current outcome labels.
+
+## Day 29 versioned run records
+
+Added schema version 2 and validation before every CLI run record is saved. Records now carry a UUID; problem/dataset versions and hashes; original claim and contract; target and runner code hashes; Git/software versions; template/provider/model identity; generation methods, seeds, and settings; proposal fixtures; validated inputs; oracle outputs and replay details; outcome reason and evidence references; revision data; and duration, token, cost, call, budget, and error fields. Unknown provenance/usage is explicit rather than silently treated as zero.
+
+Generated and validated one complete sample plus one partial UNRESOLVED sample. The validator rejects a missing dataset version, outcome reason, or evidence reference, and accepts a partial run only with a stated incomplete status/reason. Day 27's previous records are schema-v1 examples; new runs write v2. Run filenames still use the problem ID and can be overwritten; Day 30 will make filenames unique. The Day 28 question about uniform error records is addressed for caught/unexpected pipeline failures; process termination before the save step remains an open recovery case.

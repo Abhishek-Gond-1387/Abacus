@@ -1,0 +1,192 @@
+{
+  "schema_version": 2,
+  "run_id": "29a6b963-7d22-4a32-b3c5-8f8a1a4cc002",
+  "run_status": "partial",
+  "timestamps": {
+    "started_at_utc": "2026-11-03T00:00:00+00:00",
+    "finished_at_utc": "2026-11-03T00:00:00+00:00",
+    "duration_seconds": 0.012
+  },
+  "problem": {
+    "problem_id": "sample-sort",
+    "dataset_version": "sample-sort-cases-v1",
+    "dataset_sha256": "bc552bd0df09bd6c1f1fa871a93be63c888669d47443b4ba0659b2017748d79a",
+    "problem_spec_sha256": "bba3a950e64e67540187e7635a32d853a3b468e976455e1550c5202d92f54e75",
+    "dataset": {
+      "fixed_cases": [
+        [
+          5,
+          2
+        ]
+      ],
+      "proposal_fixtures": [],
+      "hypothesis": {
+        "seed": 2901,
+        "max_examples": 1
+      }
+    },
+    "original_claim": "Return all input integers in ascending order, preserving duplicates.",
+    "contract": {
+      "id": "sample-sort-contract-v1",
+      "oracle_id": "sorted_integer_list_v1",
+      "input_type": "integer_list",
+      "allow_empty": true
+    }
+  },
+  "target": {
+    "id": "sort_correct",
+    "code_sha256": "9aeb3a24338cf12d5dedafcf2ff5fb49afffd8a2499bbb53a78bbd723a48ca6a",
+    "runner_code_sha256": "96aa1d032027299a2cb14e8a902e6fbeaed86702143d4058f4467d0b79e4a924"
+  },
+  "provenance": {
+    "git_revision": null,
+    "git_dirty": false,
+    "software_versions": {
+      "python": "3.15.2",
+      "hypothesis": "6.170.14",
+      "platform": "sample-platform",
+      "abacus": "0.1.0-pilot"
+    }
+  },
+  "model": {
+    "provider_id": null,
+    "model_id": null,
+    "provider_api_called": false,
+    "provider_identity_status": "not_applicable_no_provider_call",
+    "proposal_step": {
+      "status": "not_configured",
+      "provider_api_called": false,
+      "count": 0
+    },
+    "prompt_template_versions": {
+      "plan_suggestions": "offline-suggestions-v1",
+      "proposal_fixtures": "offline-proposals-v1",
+      "claim_revision": "claim-revision-v1"
+    },
+    "plan_suggestions": [
+      {
+        "text": "Try repeated integers.",
+        "source": "offline_fixture",
+        "applied_as_fact": false
+      }
+    ]
+  },
+  "generation": {
+    "methods": [
+      "fixed",
+      "hypothesis"
+    ],
+    "random_seeds": {
+      "hypothesis": 2901
+    },
+    "settings": {
+      "sample": true
+    },
+    "scheduled_case_count": 2,
+    "generated_case_count": 0,
+    "validated_candidate_count": 1,
+    "case_counts_by_method": {
+      "fixed": 1,
+      "hypothesis": 0
+    }
+  },
+  "model_proposals": [],
+  "validated_candidates": [
+    {
+      "test_id": "fixed-1",
+      "method": "fixed",
+      "input": [
+        5,
+        2
+      ],
+      "contract_valid": true
+    }
+  ],
+  "evidence": [
+    {
+      "test_id": "fixed-1",
+      "method": "fixed",
+      "contract_id": "sample-sort-contract-v1",
+      "status": "completed",
+      "contract_valid": true,
+      "oracle_id": "sorted_integer_list_v1",
+      "input": [
+        5,
+        2
+      ],
+      "actual": [
+        2,
+        5
+      ],
+      "expected": [
+        2,
+        5
+      ],
+      "replay_confirmed": null,
+      "category": "CASE_PASSED"
+    }
+  ],
+  "replay_details": [],
+  "outcome": {
+    "outcome": "UNRESOLVED",
+    "reason": "budget_exhausted",
+    "message": "The round limit stopped evaluation before all scheduled cases completed.",
+    "test_count": 1,
+    "methods": [
+      "fixed"
+    ],
+    "counterexample": null,
+    "failure_category": null,
+    "proof_checker": null,
+    "proof_evidence_id": null,
+    "evidence_references": [
+      "fixed-1"
+    ]
+  },
+  "completion": {
+    "status": "partial",
+    "scheduled_case_count": 2,
+    "completed_case_count": 1,
+    "incomplete_reasons": [
+      "round_limit"
+    ]
+  },
+  "revision": {
+    "status": "skipped",
+    "reason": "No confirmed counterexample."
+  },
+  "usage": {
+    "model_call_count": 0,
+    "provider_reported_token_usage": {
+      "input_tokens": null,
+      "output_tokens": null,
+      "total_tokens": null,
+      "status": "not_applicable"
+    },
+    "duration_seconds": 0.012,
+    "estimated_cost_usd": 0.0,
+    "actual_cost_usd": 0.0,
+    "unknown_values": []
+  },
+  "budget": {
+    "budget_configured": {
+      "max_rounds": 1,
+      "max_model_calls": 0,
+      "max_tokens": 0
+    },
+    "usage": {
+      "rounds": 1,
+      "model_calls": 0,
+      "tokens_actual": 0,
+      "cost_actual_usd": 0.0
+    },
+    "stop_reason": "round_limit"
+  },
+  "errors": [],
+  "unknown_values": [
+    {
+      "field": "provenance.git_revision",
+      "reason": "Illustrative sample is not tied to a source checkout."
+    }
+  ]
+}

@@ -75,3 +75,13 @@
 - [x] Show that a claim revision preserves the original scored claim and label.
 - [x] Record unresolved design questions without changing outcome labels.
 - [x] Add compact examples that distinguish REFUTED, TESTS_PASSED, UNRESOLVED, and ERROR.
+
+## Day 29 — Design a complete run record
+
+- [x] Add a versioned run-record contract and unique run ID.
+- [x] Record problem/dataset version and hash, original claim/contract, target-code hash, template versions, provider/model identity, timestamp, Git revision, and software versions.
+- [x] Record generation methods/seeds/counts, proposals, validated candidates, oracle results, and replay evidence.
+- [x] Record outcome/reason/references, calls, reported tokens, duration, estimated/actual cost, budgets, and explicit unknown values.
+- [x] Add complete and partial sample run records.
+- [x] Validate run records before saving; reject missing dataset version, outcome reason, or evidence references.
+- [x] Accept a valid partial run only with an explicit partial status and incomplete reason.
