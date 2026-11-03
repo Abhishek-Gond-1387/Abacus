@@ -121,3 +121,13 @@
 - [x] Mark `TESTS_PASSED` as finite testing, not proof.
 - [x] Keep completed evidence, errors, and incomplete reasons visible for partial/error runs.
 - [x] Exercise true, false, unresolved, and error run records.
+
+## Day 34 — Handle retries and partial failures
+
+- [x] Classify safe transient errors separately from authentication, model/configuration, schema, programming, and ambiguous response-loss failures.
+- [x] Retry only safe transient failures with a small bounded exponential backoff.
+- [x] Reserve budgets for each attempt and record failure categories, failed calls, and retry counts.
+- [x] Save atomic progress checkpoints after completed test, proposal, and revision stages.
+- [x] Avoid retrying timeouts or lost responses automatically and mark their outcome/billing ambiguity.
+- [x] Preserve completed checkpoint evidence and budget state in a schema-valid emergency `ERROR` record.
+- [x] Simulate transient recovery, permanent authentication failure, ambiguous response loss, budget exhaustion, and a later-stage crash.

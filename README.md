@@ -128,3 +128,13 @@ Open a saved run by UUID without reading its raw JSON:
     .\.venv\Scripts\python.exe -m abacus view-run <RUN_ID>
 
 The viewer keeps model suggestions in a separate unverified section, shows harness-recorded checks and replay status, preserves errors and incomplete reasons, and links to the full evidence record. A `TESTS_PASSED` run displays “No counterexample found in these tests; not a proof.”
+
+## Day 34 retries and partial failures
+
+Provider adapters can use `practice.provider_retries.call_with_retries()` for bounded retries. Only explicitly safe transient failures such as rate limits retry; authentication, model/configuration, schema, and programming errors stop. Timeouts, lost responses, and server errors are treated as ambiguous and are not sent again automatically. Each actual attempt reserves model-call, token, cost, and time budgets, and its failure category is kept in the budget event log.
+
+The run pipeline writes an atomic progress checkpoint after the test, proposal, and revision stages. If a later stage crashes, the emergency `ERROR` record keeps evidence already completed and the latest saved budget/error state. `list-runs`, `show-run`, and `view-run` can inspect checkpoints. The current pilot still has no provider integration, so retry behavior is exercised with local stubs and makes no network calls.
+
+Run the Day 34 fixtures with:
+
+    .\.venv\Scripts\python.exe -m unittest practice.test_provider_retries practice.test_run_checkpoints practice.test_day27_pipeline

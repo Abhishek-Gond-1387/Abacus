@@ -19,7 +19,7 @@
 ## Next
 
 - Day 4 completed: staged named files, reviewed the staged diff, and created the first local commit.
-- Day 33 completed; next: Day 34 — handle retries and partial failures.
+- Day 34 completed; next: Day 35 — audit a run from its saved record.
 
 ## Day 21 review
 
@@ -92,3 +92,9 @@ Added provider token-usage normalization for common input/output field names. Wh
 ## Day 33 readable run viewer
 
 Added `python -m abacus view-run <RUN_ID>` while retaining `show-run` for raw JSON. The text summary shows the original claim/contract, verdict/reason, completed and scheduled counts, methods, candidate counterexamples with replay status, errors, incomplete reasons, and a path to the full evidence. Model suggestions and proposal fixtures are explicitly labeled unverified and kept apart from harness evidence. `TESTS_PASSED` always carries the note “No counterexample found in these tests; not a proof.” True, false, unresolved, and error fixtures cover the viewer.
+
+## Day 34 retries and partial failures
+
+Added a provider-call wrapper that retries only explicitly safe transient failures with at most two retries and exponential backoff. Authentication/configuration errors stop immediately. Timeouts, connection loss, and 5xx response loss are not retried because the provider may have completed the request; the failure carries ambiguous outcome and billing status. Every call attempt is reserved against the existing call, token, cost, and duration budgets, while failed-call categories and retry counts remain in the tracker events.
+
+The pipeline now saves atomic checkpoints after each completed test, proposal, and revision stage. Run discovery and the viewer expose interrupted checkpoints; a later pipeline exception builds a schema-valid `ERROR` record from the latest checkpoint and retains its evidence, stage timing, errors, proposal state, and budget snapshot. Simulated late failure confirms completed evidence survives. This project still makes no real provider calls; retries are tested with local stubs.

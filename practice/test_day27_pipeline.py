@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import json
+import io
 import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 from datetime import datetime, timezone
 from pathlib import Path
 from unittest import mock
@@ -12,6 +14,8 @@ from unittest import mock
 from abacus import cli
 from abacus.cli import ProblemValidationError, load_problem, parse_problem, run_problem
 from practice.run_records import validate_run_record
+from practice.provider_retries import ProviderCallFailure
+from practice.run_view import render_run_summary
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -106,6 +110,62 @@ class Day27PipelineTests(unittest.TestCase):
         self.assertEqual(record["outcome"]["outcome"], "ERROR")
         self.assertEqual(record["outcome"]["evidence_references"], ["error:pipeline-error"])
         self.assertIs(validate_run_record(record), record)
+
+    def test_emergency_provider_error_exposes_ambiguous_outcome_and_billing(self) -> None:
+        spec = load_problem(PROBLEMS / "p01_true_sort.json")
+        failure = ProviderCallFailure(
+            "Provider response was lost.",
+            category="response_lost",
+            attempts=1,
+            outcome_ambiguous=True,
+        )
+        record = cli._emergency_error_record(
+            spec,
+            failure,
+            started_at=datetime.now(timezone.utc),
+            duration_seconds=0.01,
+        )
+
+        self.assertEqual(record["outcome"]["failure_category"], "response_lost")
+        self.assertTrue(record["outcome"]["outcome_ambiguous"])
+        self.assertEqual(record["outcome"]["billing_status"], "ambiguous")
+        self.assertIn("billing: ambiguous", render_run_summary(validate_run_record(record)))
+
+    def test_late_pipeline_failure_saves_checkpoint_evidence_in_error_record(self) -> None:
+        spec_path = PROBLEMS / "p01_true_sort.json"
+        spec = load_problem(spec_path)
+        checkpoint_snapshots: list[dict[str, object]] = []
+        original_save_checkpoint = cli.save_run_checkpoint
+
+        def capture_checkpoint(path: Path, checkpoint: dict[str, object]) -> Path:
+            checkpoint_snapshots.append(dict(checkpoint))
+            return original_save_checkpoint(path, checkpoint)
+
+        with tempfile.TemporaryDirectory() as directory:
+            log_path = Path(directory) / "pipeline-error.json"
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            with (
+                mock.patch("abacus.cli._revision_log", side_effect=RuntimeError("revision stage crashed")),
+                mock.patch("abacus.cli.save_run_checkpoint", side_effect=capture_checkpoint),
+                redirect_stdout(stdout),
+                redirect_stderr(stderr),
+            ):
+                result = cli.main(["run", str(spec_path), "--output", str(log_path)])
+
+            saved = json.loads(log_path.read_text(encoding="utf-8"))
+            checkpoint_path = log_path.with_name(f"{log_path.name}.{saved['run_id']}.checkpoint")
+
+        self.assertEqual(result, 1)
+        self.assertTrue(checkpoint_snapshots)
+        self.assertEqual(saved["run_id"], checkpoint_snapshots[-1]["run_id"])
+        self.assertEqual(saved["run_status"], "error")
+        self.assertEqual(saved["outcome"]["outcome"], "ERROR")
+        self.assertEqual(saved["evidence"], checkpoint_snapshots[-1]["evidence"])
+        self.assertGreater(saved["completion"]["completed_case_count"], 0)
+        self.assertIn("revision stage crashed", saved["errors"][-1]["error"])
+        self.assertFalse(checkpoint_path.exists())
+        self.assertIs(validate_run_record(saved), saved)
 
 
 if __name__ == "__main__":

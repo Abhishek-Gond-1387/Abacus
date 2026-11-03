@@ -14,7 +14,7 @@ import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any, Callable, Mapping
 from uuid import uuid4
 
 from hypothesis import HealthCheck, __version__ as hypothesis_version, given, seed, settings, strategies as st
@@ -23,6 +23,7 @@ from practice.budgets import BudgetConfig, BudgetTracker
 from practice.decision import ClaimContract, decide
 from practice.outcomes import FinalOutcome
 from practice.revisions import ClaimRevision, RevisionTriggerEvidence
+from practice.run_checkpoints import save_run_checkpoint
 from practice.run_records import (
     RUN_RECORD_SCHEMA_VERSION,
     find_run_record,
@@ -466,6 +467,8 @@ def _runner_code_sha256() -> str:
         PROJECT_ROOT / "practice" / "outcomes.py",
         PROJECT_ROOT / "practice" / "budgets.py",
         PROJECT_ROOT / "practice" / "revisions.py",
+        PROJECT_ROOT / "practice" / "run_checkpoints.py",
+        PROJECT_ROOT / "practice" / "provider_retries.py",
     ):
         digest.update(path.name.encode("utf-8"))
         digest.update(path.read_bytes())
@@ -519,11 +522,18 @@ def run_problem(
     log_path: str | Path | None = None,
     *,
     runs_dir: str | Path = RUNS_DIR,
+    checkpoint_callback: Callable[[dict[str, Any]], None] | None = None,
 ) -> dict[str, Any]:
     """Run fixed, Hypothesis, and proposal evidence and always save the run log."""
     started_at = datetime.now(timezone.utc)
     started_clock = time.perf_counter()
     run_id = str(uuid4())
+    destination = (
+        Path(log_path)
+        if log_path is not None
+        else _default_run_path(spec.problem_id, run_id, started_at, runs_dir)
+    )
+    checkpoint_path = destination.with_name(f"{destination.name}.{run_id}.checkpoint")
     tracker = BudgetTracker(spec.budget_config)
     if not tracker.start_round():
         raise RuntimeError("Could not start the local evaluation round.")
@@ -540,6 +550,38 @@ def run_problem(
     case_log: list[dict[str, Any]] = []
     errors: list[dict[str, str]] = []
     proposal_evaluation_succeeded = not spec.proposals
+    proposal_step: dict[str, Any] = {
+        "status": "not_started" if spec.proposals else "not_configured",
+        "provider_api_called": False,
+        "count": 0,
+    }
+    proposal_stage_status = "not_started" if spec.proposals else "not_configured"
+    revision_snapshot: dict[str, Any] = {"status": "not_started"}
+
+    def save_checkpoint(stage: str, *, stage_durations: dict[str, float | None] | None = None) -> None:
+        checkpoint = {
+            "checkpoint_version": 1,
+            "run_id": run_id,
+            "problem_id": spec.problem_id,
+            "stage": stage,
+            "final_path": str(destination),
+            "checkpoint_path": str(checkpoint_path),
+            "started_at_utc": started_at.isoformat(),
+            "duration_seconds": round(time.perf_counter() - started_clock, 6),
+            "scheduled_case_count": scheduled_count,
+            "generated_case_count": len(hypothesis_cases),
+            "budget": tracker.to_dict(evidence_complete=False),
+            "stage_durations_seconds": stage_durations or {},
+            "evidence": list(evidence),
+            "case_log": list(case_log),
+            "errors": list(errors),
+            "proposal_step": dict(proposal_step),
+            "proposal_evaluation_succeeded": proposal_evaluation_succeeded,
+            "revision": dict(revision_snapshot),
+        }
+        save_run_checkpoint(checkpoint_path, checkpoint)
+        if checkpoint_callback is not None:
+            checkpoint_callback(checkpoint)
 
     def record_case(method: str, test_id: str, value: list[int]) -> None:
         record, detail = _evidence_for_case(spec=spec, method=method, test_id=test_id, value=value)
@@ -568,15 +610,12 @@ def run_problem(
         for index, value in enumerate(hypothesis_cases, start=1):
             record_case("hypothesis", f"hypothesis-{index}", value)
     tests_duration_seconds = round(time.perf_counter() - tests_started_clock, 6)
+    save_checkpoint("tests_complete", stage_durations={"tests": tests_duration_seconds})
 
-    proposal_step: dict[str, Any] = {
-        "status": "not_configured" if not spec.proposals else "offline_fixtures",
-        "provider_api_called": False,
-        "count": 0,
-    }
     proposals_started_clock = time.perf_counter()
-    proposal_stage_status = "not_configured" if not spec.proposals else "completed"
     if spec.proposals:
+        proposal_stage_status = "completed"
+        proposal_step["status"] = "offline_fixtures"
         try:
             proposals = collect_offline_proposals(spec)
             proposal_step["count"] = len(proposals)
@@ -605,15 +644,26 @@ def run_problem(
                         "failure_category": "OPTIONAL_PROPOSAL_GENERATION",
                     }
                 )
+    else:
+        proposal_step["status"] = "not_configured"
     proposals_duration_seconds = (
         round(time.perf_counter() - proposals_started_clock, 6)
         if spec.proposals else None
     )
+    save_checkpoint(
+        "proposals_complete",
+        stage_durations={"tests": tests_duration_seconds, "proposals": proposals_duration_seconds},
+    )
 
     outcome = decide(evidence, contract)
     revision = _revision_log(spec, outcome)
+    revision_snapshot = dict(revision)
     if revision["status"] == "error":
         _append_error(errors, "optional_revision", revision["error"])
+    save_checkpoint(
+        "revision_complete",
+        stage_durations={"tests": tests_duration_seconds, "proposals": proposals_duration_seconds},
+    )
 
     tracker.finish_round()
     completed_count = sum(record.get("status") == "completed" for record in evidence)
@@ -823,13 +873,13 @@ def run_problem(
         "errors": errors,
         "unknown_values": unknown_values,
     }
-    destination = (
-        Path(log_path)
-        if log_path is not None
-        else _default_run_path(spec.problem_id, run_id, started_at, runs_dir)
-    )
     record_schema = sanitize_run_record_for_log(record_schema)
     save_run_record(destination, record_schema)
+    try:
+        checkpoint_path.unlink(missing_ok=True)
+    except OSError:
+        # The complete record takes precedence; stale checkpoints are ignored by listing.
+        pass
     run_record = record_schema
     run_record["log_path"] = str(destination)
     return run_record
@@ -841,6 +891,7 @@ def _emergency_error_record(
     *,
     started_at: datetime,
     duration_seconds: float,
+    progress: Mapping[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Create a schema-valid failure record if an unexpected stage escapes."""
     finished_at = datetime.now(timezone.utc).isoformat()
@@ -853,7 +904,7 @@ def _emergency_error_record(
         unknown_values.append({"field": "provenance.git_revision", "reason": "Git revision could not be read."})
     unknown_values.append({"field": "budget.usage.rounds", "reason": "The tracker snapshot was unavailable after the escaped failure."})
     message = f"{type(error).__name__}: {error}"
-    return {
+    record = {
         "schema_version": RUN_RECORD_SCHEMA_VERSION,
         "run_id": str(uuid4()),
         "run_status": "error",
@@ -931,7 +982,9 @@ def _emergency_error_record(
             "test_count": None,
             "methods": ["pipeline"],
             "counterexample": None,
-            "failure_category": type(error).__name__,
+            "failure_category": getattr(error, "category", type(error).__name__),
+            "outcome_ambiguous": bool(getattr(error, "outcome_ambiguous", False)),
+            "billing_status": getattr(error, "billing_status", "not_applicable"),
             "proof_checker": None,
             "proof_evidence_id": None,
             "evidence_references": [f"error:{error_id}"],
@@ -991,6 +1044,218 @@ def _emergency_error_record(
         "errors": [{"error_id": error_id, "step": "pipeline", "error": message}],
         "unknown_values": unknown_values,
     }
+    failure_budget = getattr(error, "budget_snapshot", None)
+    if not isinstance(progress, Mapping):
+        if not isinstance(failure_budget, Mapping):
+            return record
+        progress = {"budget": failure_budget}
+
+    evidence = progress.get("evidence", [])
+    evidence = [dict(item) for item in evidence if isinstance(item, Mapping)] if isinstance(evidence, list) else []
+    case_log = progress.get("case_log", [])
+    case_log = [dict(item) for item in case_log if isinstance(item, Mapping)] if isinstance(case_log, list) else []
+    saved_errors = progress.get("errors", [])
+    errors = [dict(item) for item in saved_errors if isinstance(item, Mapping)] if isinstance(saved_errors, list) else []
+    existing_error_ids = {item.get("error_id") for item in errors}
+    if error_id in existing_error_ids:
+        error_id = f"pipeline-error-{len(errors) + 1}"
+    message = f"{type(error).__name__}: {error}"
+    errors.append({"error_id": error_id, "step": "pipeline", "error": message})
+
+    methods = _methods_for(spec)
+    method_counts = {method: sum(item.get("method") == method for item in evidence) for method in methods}
+    completed = [item for item in evidence if item.get("status") == "completed"]
+    validated_candidates = [
+        {
+            "test_id": item["test_id"],
+            "method": item["method"],
+            "input": item["input"],
+            "contract_valid": item["contract_valid"],
+        }
+        for item in completed
+        if all(key in item for key in ("test_id", "method", "input", "contract_valid"))
+    ]
+    replay_details = [
+        {
+            "test_id": detail["test_id"],
+            "attempted": True,
+            "confirmed": detail.get("replay_confirmed"),
+            "input": detail.get("input"),
+            "actual": detail.get("replay_actual"),
+            "expected": detail.get("replay_expected"),
+            "error": detail.get("replay_error"),
+        }
+        for detail in case_log
+        if detail.get("replay_attempted") and isinstance(detail.get("test_id"), str)
+    ]
+    proposal_step = progress.get("proposal_step")
+    if not isinstance(proposal_step, Mapping):
+        proposal_step = record["model"]["proposal_step"]
+    revision = progress.get("revision")
+    if not isinstance(revision, Mapping):
+        revision = {"status": "not_started", "reason": "Pipeline failed before revision processing."}
+    stage_durations = progress.get("stage_durations_seconds", {})
+    if not isinstance(stage_durations, Mapping):
+        stage_durations = {}
+    scheduled_count = progress.get("scheduled_case_count")
+    if type(scheduled_count) is not int or scheduled_count < len(completed):
+        scheduled_count = _scheduled_count(spec)
+    generated_count = progress.get("generated_case_count")
+    if type(generated_count) is not int or generated_count < 0:
+        generated_count = method_counts.get("hypothesis", 0)
+    stage = progress.get("stage")
+    proposal_status = (
+        str(proposal_step.get("status", "completed"))
+        if stage in {"proposals_complete", "revision_complete"}
+        else "partial" if stage == "tests_complete" and spec.proposals
+        else "not_configured" if not spec.proposals
+        else "not_started"
+    )
+    proposal_succeeded = bool(progress.get("proposal_evaluation_succeeded", not spec.proposals))
+    progress_budget = failure_budget if isinstance(failure_budget, Mapping) else progress.get("budget")
+    if not isinstance(progress_budget, Mapping):
+        progress_budget = {}
+    progress_budget_usage = progress_budget.get("usage")
+    if not isinstance(progress_budget_usage, Mapping):
+        progress_budget_usage = {}
+    model_calls = progress_budget_usage.get("model_calls", 0)
+    successful_calls = progress_budget_usage.get("successful_calls", 0)
+    failed_calls = progress_budget_usage.get("failed_calls", 0)
+    retry_calls = progress_budget_usage.get("retry_calls", 0)
+    provider_usage = progress_budget_usage.get("provider_reported_token_usage")
+    if not isinstance(provider_usage, Mapping):
+        provider_usage = record["usage"]["provider_reported_token_usage"]
+    pricing_record = (
+        spec.pricing_config.to_record()
+        if model_calls and spec.pricing_config is not None
+        else {
+            "status": "unknown" if model_calls else "not_applicable",
+            "provider_id": None,
+            "model_id": None,
+            "input_usd_per_million_tokens": None,
+            "output_usd_per_million_tokens": None,
+            "source_url": None,
+            "checked_at": None,
+        }
+    )
+    estimated_cost = (
+        progress_budget_usage.get("cost_estimated_usd", 0.0)
+        if not model_calls or spec.pricing_config is not None
+        else None
+    )
+    actual_cost = (
+        progress_budget_usage.get("cost_actual_usd", 0.0)
+        if not model_calls or spec.pricing_config is not None
+        else None
+    )
+    usage_unknown_values = []
+    if provider_usage.get("status") == "unknown":
+        usage_unknown_values.append("provider_reported_token_usage")
+    if pricing_record["status"] == "unknown":
+        usage_unknown_values.append("pricing")
+    if estimated_cost is None:
+        usage_unknown_values.append("estimated_cost_usd")
+    if actual_cost is None:
+        usage_unknown_values.append("actual_cost_usd")
+    model_record = dict(record["model"])
+    model_record.update({
+        "provider_api_called": bool(model_calls),
+        "provider_identity_status": "unknown_after_provider_call" if model_calls else "not_applicable_no_provider_call",
+        "proposal_step": dict(proposal_step),
+    })
+    usage_record = dict(record["usage"])
+    usage_record.update({
+        "model_call_count": model_calls,
+        "successful_model_call_count": successful_calls,
+        "failed_model_call_count": failed_calls,
+        "retry_call_count": retry_calls,
+        "provider_reported_token_usage": dict(provider_usage),
+        "pricing": pricing_record,
+        "estimated_cost_usd": estimated_cost,
+        "actual_cost_usd": actual_cost,
+        "unknown_values": usage_unknown_values,
+    })
+    started_text = progress.get("started_at_utc")
+    if isinstance(started_text, str):
+        try:
+            checkpoint_started_at = datetime.fromisoformat(started_text)
+            if checkpoint_started_at.tzinfo is not None:
+                started_at = checkpoint_started_at
+        except ValueError:
+            pass
+    revision_reasons = [str(item.get("step", "pipeline_failure")) for item in errors]
+    counts = {**method_counts}
+    record.update({
+        "run_id": progress.get("run_id", record["run_id"]),
+        "timestamps": {
+            **record["timestamps"],
+            "started_at_utc": started_at.isoformat(),
+            "duration_seconds": duration_seconds,
+        },
+        "model": model_record,
+        "generation": {
+            **record["generation"],
+            "scheduled_case_count": scheduled_count,
+            "generated_case_count": generated_count,
+            "validated_candidate_count": len(validated_candidates),
+            "case_counts_by_method": counts,
+        },
+        "model_proposals": _model_proposal_records(spec, evaluated=proposal_succeeded),
+        "validated_candidates": validated_candidates,
+        "evidence": evidence,
+        "replay_details": replay_details,
+        "outcome": {
+            **record["outcome"],
+            "test_count": len(completed),
+            "evidence_references": [f"error:{error_id}"],
+        },
+        "completion": {
+            "status": "error",
+            "scheduled_case_count": scheduled_count,
+            "completed_case_count": len(completed),
+            "incomplete_reasons": revision_reasons or ["pipeline_failure"],
+        },
+        "revision": dict(revision),
+        "errors": errors,
+        "usage": {
+            **usage_record,
+            "duration_seconds": duration_seconds,
+            "stage_durations_seconds": {
+                "planning": None,
+                "proposals": stage_durations.get("proposals"),
+                "tests": stage_durations.get("tests"),
+                "total": duration_seconds,
+            },
+            "stage_status": {
+                "planning": "not_configured",
+                "proposals": proposal_status,
+                "tests": "completed" if stage in {"tests_complete", "proposals_complete", "revision_complete"} else "partial",
+                "total": "error",
+            },
+        },
+        "budget": {
+            **record["budget"],
+            **dict(progress_budget),
+            "budget_configured": spec.budget_config.to_dict(),
+            "usage": {
+                **record["budget"]["usage"],
+                **dict(progress_budget_usage),
+                "rounds": progress_budget_usage.get("rounds", 1 if stage else None),
+                "model_calls": model_calls,
+                "successful_calls": successful_calls,
+                "failed_calls": failed_calls,
+                "retry_calls": retry_calls,
+                "evaluated_cases": len(completed),
+            },
+            "stop_reason": progress_budget.get("stop_reason") or "pipeline_failure",
+            "events": list(progress_budget.get("events", [])) if isinstance(progress_budget.get("events", []), list) else [],
+        },
+        "unknown_values": [
+            item for item in unknown_values
+            if item.get("field") != "budget.usage.rounds"
+        ],
+    })
+    return record
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1042,14 +1307,18 @@ def main(argv: list[str] | None = None) -> int:
         if "incomplete_marker" in record:
             marker = record["incomplete_marker"]
             record_path = marker.get("marker_path", record_path)
+        elif "progress_checkpoint" in record:
+            checkpoint = record["progress_checkpoint"]
+            record_path = checkpoint.get("path", record_path)
         print(render_run_summary(record, record_path=record_path))
-        return 1 if "incomplete_marker" in record else 0
+        return 1 if "incomplete_marker" in record or "progress_checkpoint" in record else 0
     if args.command == "summarize-runs":
         entries = list_run_records(args.runs_dir, problem_id=args.problem_id)
         records = [load_run_record(item["path"]) for item in entries["runs"]]
         summary = summarize_run_usage(records)
         summary["problem_id"] = args.problem_id
         summary["incomplete_run_count"] = len(entries["incomplete"])
+        summary["checkpoint_count"] = len(entries["checkpoints"])
         summary["invalid_file_count"] = len(entries["invalid_files"])
         print(json.dumps(summary, indent=2, ensure_ascii=False))
         return 0
@@ -1063,24 +1332,40 @@ def main(argv: list[str] | None = None) -> int:
     requested_log_path = Path(args.output) if args.output else None
     pipeline_started_at = datetime.now(timezone.utc)
     pipeline_started_clock = time.perf_counter()
+    latest_checkpoint: dict[str, Any] = {}
+
+    def remember_checkpoint(checkpoint: dict[str, Any]) -> None:
+        latest_checkpoint.clear()
+        latest_checkpoint.update(checkpoint)
+
     try:
-        record = run_problem(spec, requested_log_path)
+        record = run_problem(spec, requested_log_path, checkpoint_callback=remember_checkpoint)
     except Exception as error:
         failure = _emergency_error_record(
             spec,
             error,
             started_at=pipeline_started_at,
             duration_seconds=round(time.perf_counter() - pipeline_started_clock, 6),
+            progress=latest_checkpoint or None,
         )
         failure = sanitize_run_record_for_log(failure)
-        log_path = requested_log_path
-        if log_path is None or log_path.exists():
+        progress_path = latest_checkpoint.get("final_path")
+        log_path = Path(progress_path) if isinstance(progress_path, str) else requested_log_path
+        if log_path is None:
             log_path = _default_run_path(
                 spec.problem_id,
                 failure["run_id"],
                 pipeline_started_at,
             )
+        if log_path.exists() or log_path.with_name(log_path.name + ".incomplete").exists():
+            log_path = log_path.with_name(f"{log_path.stem}.error-{failure['run_id']}{log_path.suffix}")
         save_run_record(log_path, failure)
+        checkpoint_path = latest_checkpoint.get("checkpoint_path")
+        if isinstance(checkpoint_path, str):
+            try:
+                Path(checkpoint_path).unlink(missing_ok=True)
+            except OSError:
+                pass
         print(json.dumps(failure, indent=2, ensure_ascii=False))
         print(f"Saved error log: {log_path}", file=sys.stderr)
         return 1

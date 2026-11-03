@@ -49,6 +49,32 @@ def render_run_summary(
         if record_path is not None:
             lines.append(f"Marker: {_display(sanitize_for_log(str(record_path)))}")
         return "\n".join(lines)
+    progress = safe_record.get("progress_checkpoint")
+    if isinstance(progress, Mapping):
+        evidence_rows = progress.get("evidence", [])
+        evidence_rows = evidence_rows if isinstance(evidence_rows, list) else []
+        completed_count = sum(
+            isinstance(item, Mapping) and item.get("status") == "completed"
+            for item in evidence_rows
+        )
+        scheduled = progress.get("scheduled_case_count")
+        count_label = f"{completed_count} completed"
+        if type(scheduled) is int:
+            count_label += f" / {scheduled} scheduled"
+        lines.extend(("INTERRUPTED RUN CHECKPOINT", f"Run ID: {_display(progress.get('run_id', 'unknown'))}"))
+        lines.append(f"Problem: {_display(progress.get('problem_id', 'unknown'))}")
+        lines.append(f"Last completed stage: {_display(progress.get('stage', 'unknown'))}")
+        lines.append(f"Harness evidence: {count_label}")
+        errors = progress.get("errors", [])
+        if isinstance(errors, list) and errors:
+            lines.append("Recorded errors:")
+            for error in errors:
+                if isinstance(error, Mapping):
+                    lines.append(f"  {_display(error.get('step', 'unknown'))}: {_display(error.get('error', 'unknown'))}")
+        lines.append("This progress snapshot has no final run verdict.")
+        if record_path is not None:
+            lines.append(f"Checkpoint: {_display(sanitize_for_log(str(record_path)))}")
+        return "\n".join(lines)
 
     problem = _mapping(safe_record.get("problem"))
     contract = _mapping(problem.get("contract"))
@@ -83,6 +109,8 @@ def render_run_summary(
         lines.append(TESTS_PASSED_NOTE)
     if outcome.get("failure_category"):
         lines.append(f"Failure category: {_display(outcome['failure_category'])}")
+    if outcome.get("outcome_ambiguous") is True or outcome.get("billing_status") == "ambiguous":
+        lines.append("Provider outcome/billing: ambiguous; request was not retried automatically.")
 
     completed_count = sum(
         isinstance(item, Mapping) and item.get("status") == "completed"

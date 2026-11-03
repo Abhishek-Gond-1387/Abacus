@@ -13,6 +13,7 @@ from uuid import UUID, uuid4
 from typing import Any
 
 from .log_safety import sanitize_for_log
+from .run_checkpoints import load_run_checkpoint
 from .usage_metrics import PricingConfig
 
 
@@ -533,15 +534,16 @@ def load_run_record(path: str | Path) -> dict[str, Any]:
 def list_run_records(
     runs_dir: str | Path, *, problem_id: str | None = None
 ) -> dict[str, list[dict[str, Any]]]:
-    """List valid records, interrupted-save markers, and unreadable files."""
+    """List valid records, interrupted saves, progress checkpoints, and invalid files."""
     root = Path(runs_dir)
     records: list[dict[str, Any]] = []
     incomplete: list[dict[str, Any]] = []
+    checkpoints: list[dict[str, Any]] = []
     invalid: list[dict[str, str]] = []
     complete_ids: set[str] = set()
 
     if not root.exists():
-        return {"runs": records, "incomplete": incomplete, "invalid_files": invalid}
+        return {"runs": records, "incomplete": incomplete, "checkpoints": checkpoints, "invalid_files": invalid}
 
     for path in sorted(root.glob("*.json")):
         try:
@@ -578,7 +580,19 @@ def list_run_records(
             continue
         incomplete.append({**marker, "marker_path": str(marker_path)})
 
-    return {"runs": records, "incomplete": incomplete, "invalid_files": invalid}
+    for checkpoint_path in sorted(root.glob("*.checkpoint")):
+        try:
+            checkpoint = load_run_checkpoint(checkpoint_path)
+        except (OSError, UnicodeError, json.JSONDecodeError, ValueError) as error:
+            invalid.append({"path": str(checkpoint_path), "error": str(error)})
+            continue
+        if problem_id is not None and checkpoint["problem_id"] != problem_id:
+            continue
+        if checkpoint["run_id"] in complete_ids:
+            continue
+        checkpoints.append({**checkpoint, "path": str(checkpoint_path)})
+
+    return {"runs": records, "incomplete": incomplete, "checkpoints": checkpoints, "invalid_files": invalid}
 
 
 def find_run_record(runs_dir: str | Path, run_id: str) -> dict[str, Any] | None:
@@ -590,4 +604,7 @@ def find_run_record(runs_dir: str | Path, run_id: str) -> dict[str, Any] | None:
     for marker in entries["incomplete"]:
         if marker["run_id"] == run_id:
             return {"incomplete_marker": marker}
+    for checkpoint in entries["checkpoints"]:
+        if checkpoint["run_id"] == run_id:
+            return {"progress_checkpoint": checkpoint}
     return None
