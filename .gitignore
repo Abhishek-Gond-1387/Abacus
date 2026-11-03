@@ -6,6 +6,7 @@ build/
 dist/
 .env
 runs/
+.abacus-audits/
 .pip-build-temp/
 .hypothesis/
 .pytest_cache/

@@ -335,4 +335,16 @@
 - [x] Document what the audit metadata identifies and its reproducibility limits.
 - [x] Compile changed Python modules and pass `git diff --check`.
 - [x] Commit the Day 55 changes locally.
-- [ ] Push the Day 55 commit to `origin` and confirm all four hosted CI jobs pass.
+- [x] Confirm the Day 55 commit is present on remote-tracking `origin/main`.
+- [ ] Confirm all four hosted CI jobs pass.
+
+## Day 56 — Save hosted suggestions as separate audit artifacts
+
+- [x] Add an explicit `--save-audit PATH` option; keep persistence off by default.
+- [x] Validate the parsed structured suggestion and audit metadata before writing.
+- [x] Save with a versioned schema, exclusive no-overwrite creation, and an interruption marker.
+- [x] Keep artifacts separate from run records and ignore the documented local audit directory in Git.
+- [x] Document which content is saved and what remains excluded.
+- [x] Compile changed Python modules and pass `git diff --check`.
+- [x] Commit the Day 56 changes locally.
+- [ ] Push the Day 56 commit to `origin` and confirm all four hosted CI jobs pass.

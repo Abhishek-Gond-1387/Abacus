@@ -1,6 +1,6 @@
 # Abacus
 
-Abacus is a research prototype for checking precise claims about Python functions. It searches for candidate counterexamples and uses trusted checks to decide what the evidence supports. A passing finite test run is not a proof of correctness. This repository tracks the Day 1–55 learning work.
+Abacus is a research prototype for checking precise claims about Python functions. It searches for candidate counterexamples and uses trusted checks to decide what the evidence supports. A passing finite test run is not a proof of correctness. This repository tracks the Day 1–56 learning work.
 
 The Day 1–3 exercises use Python's standard library. Day 5 and Day 6 use the OpenAI-compatible Python SDK and `python-dotenv`; Gemini is the default provider, with OpenAI available as an optional provider. Day 6 puts live requests behind a reusable helper and includes an offline stub.
 
@@ -486,8 +486,18 @@ For `candidate_proposals`, add `--evaluate-proposals` to check each parsed integ
 .\.venv\Scripts\python.exe -m abacus model-suggest problems\p01_true_sort.json --kind candidate_proposals --model gemini-3.1-flash-lite --send-to-provider --evaluate-proposals
 ```
 
-The explicit provider request behavior and possible quota or charges are the same as Day 53. Evaluation rejects empty arrays when the contract disallows them, and it runs only parsed integer inputs against the allowlisted target/oracle; no model-generated code is executed. Per-input evidence is returned in the command output but is not saved, added to an overall verdict, or a proof. `--evaluate-proposals` is valid only with `--kind candidate_proposals`; without it, the command returns suggestions without local evaluation.
+The explicit provider request behavior and possible quota or charges are the same as Day 53. Evaluation rejects empty arrays when the contract disallows them, and it runs only parsed integer inputs against the allowlisted target/oracle; no model-generated code is executed. Per-input evidence is returned in the command output and is not added to an overall verdict or a proof. By default, it is not saved. `--evaluate-proposals` is valid only with `--kind candidate_proposals`; without it, the command returns suggestions without local evaluation.
 
 ## Day 55 hosted request audit metadata
 
 The JSON success and provider-error outputs from `model-suggest` include `request_metadata`: provider and model IDs, problem and dataset hashes, the prompt template version, prompt SHA-256 and byte count, request start time, timeout, retry count, output-token cap, and sampling-default marker. This supports comparing or identifying the exact request context without printing the prompt body or credentials. Usage and cost are still not recorded, and the metadata does not make a hosted response reproducible because provider behavior may vary.
+
+## Day 56 save a hosted suggestion audit artifact
+
+Add `--save-audit PATH` to save a successfully parsed response, request metadata, and optional local proposal evaluation as a versioned JSON audit artifact:
+
+```powershell
+.\.venv\Scripts\python.exe -m abacus model-suggest problems\p01_true_sort.json --kind candidate_proposals --model gemini-3.1-flash-lite --send-to-provider --evaluate-proposals --save-audit .abacus-audits\p01-candidates.json
+```
+
+Saving is opt-in. The writer validates the structured response, creates parent directories as needed, and refuses to overwrite an existing artifact. A completion marker protects interrupted writes. The artifact contains no prompt body, raw provider response, or credentials; it is separate from normal run records and never changes a claim verdict. The `.abacus-audits/` directory is Git-ignored because suggestions and evaluation inputs may be sensitive. Provider-error responses remain on stdout with safe metadata and are not saved as successful suggestion artifacts.

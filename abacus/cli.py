@@ -40,6 +40,11 @@ from abacus.experiment import (
     methods_for as _methods_for,
     scheduled_count as _scheduled_count,
 )
+from abacus.hosted_audit import (
+    HOSTED_AUDIT_SCHEMA_VERSION,
+    HostedAuditValidationError,
+    save_hosted_audit_record,
+)
 from abacus.llm import (
     LLMNotConfiguredError,
     LLMProviderError,
@@ -1064,6 +1069,12 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="evaluate parsed candidate inputs with the registered local target and oracle",
     )
+    suggest_parser.add_argument(
+        "--save-audit",
+        type=Path,
+        metavar="PATH",
+        help="save a successful parsed suggestion and audit metadata to a new JSON file; never overwrite",
+    )
     untrusted_parser = subparsers.add_parser(
         "execute-untrusted",
         help="run a candidate(value) function only through the verified container sandbox",
@@ -1213,7 +1224,7 @@ def main(argv: list[str] | None = None) -> int:
             }, ensure_ascii=False))
             return 2
         except (LLMProviderError, ModelOutputError) as error:
-            print(json.dumps({
+            error_output = {
                 "status": "error",
                 "output_kind": args.kind,
                 "model_id": args.model,
@@ -1221,7 +1232,13 @@ def main(argv: list[str] | None = None) -> int:
                 "usage_recorded": False,
                 "request_metadata": request_metadata,
                 "error_category": error.category,
-            }, ensure_ascii=False))
+            }
+            if args.save_audit is not None:
+                error_output.update({
+                    "audit_record_saved": False,
+                    "audit_save_error": "no_validated_suggestion",
+                })
+            print(json.dumps(error_output, ensure_ascii=False))
             return 1
         except ValueError as error:
             print(json.dumps({
@@ -1281,11 +1298,38 @@ def main(argv: list[str] | None = None) -> int:
             output["proposal_evaluation"] = {
                 "status": "completed",
                 "evaluator": "registered_local_target_and_oracle",
-                "results_saved": False,
+                "normal_run_record_saved": False,
                 "results": evaluated,
             }
+        audit_save_exit = 0
+        if args.save_audit is not None:
+            audit_record_id = str(uuid4())
+            audit_record = {
+                "audit_schema_version": HOSTED_AUDIT_SCHEMA_VERSION,
+                "audit_record_id": audit_record_id,
+                "saved_at_utc": datetime.now(timezone.utc).isoformat(),
+                "suggestion_output": output,
+            }
+            try:
+                saved_path = save_hosted_audit_record(args.save_audit, audit_record)
+            except FileExistsError:
+                output["audit_record_saved"] = False
+                output["audit_save_error"] = "destination_exists"
+                audit_save_exit = 1
+            except HostedAuditValidationError:
+                output["audit_record_saved"] = False
+                output["audit_save_error"] = "invalid_audit_record"
+                audit_save_exit = 1
+            except OSError:
+                output["audit_record_saved"] = False
+                output["audit_save_error"] = "write_failed"
+                audit_save_exit = 1
+            else:
+                output["audit_record_saved"] = True
+                output["audit_record_id"] = audit_record_id
+                output["audit_record_path"] = str(saved_path)
         print(json.dumps(output, indent=2, ensure_ascii=False))
-        return 0
+        return audit_save_exit
 
     requested_log_path = Path(args.output) if args.output else None
     pipeline_started_at = datetime.now(timezone.utc)
