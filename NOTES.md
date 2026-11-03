@@ -288,3 +288,9 @@ The unified suite passed 156/156 on the local Windows environment during Day 44.
 Added `.github/dependabot.yml` with weekly version-update checks for `github-actions` and `pip`, capped at two and three open PRs respectively. The action references in the workflow remain pinned to commit SHAs and include release tags in same-line comments, which Dependabot uses to track the intended action release. Version updates arrive as PRs and are not auto-merged; the CI workflow checks them when pushed/opened against `main`.
 
 Static review and `git diff --check` passed. No YAML parser is installed locally, and the Dependabot schedule cannot be observed until this configuration is pushed and GitHub processes its first weekly check.
+
+## Day 47 YAML lint gate
+
+Added pinned `yamllint==1.38.0` in CI-only `requirements-ci.txt`, a shared `.yamllint` configuration, and a CI step that runs `yamllint --strict` against both GitHub config files before the tests. The linter is deliberately separate from normal dev requirements: the current PyYAML sdist otherwise requires a Microsoft C++ compiler on Python 3.15, while CI's 3.11/3.14 matrix has compatible wheels. The local PowerShell command sets PyYAML's pure-Python build option for the optional linter install. The configuration disables the document-start rule (not required by GitHub files), exempts mapping keys from the YAML truthy check so GitHub's `on` key is accepted, and keeps duplicate-key/indentation/trailing-space checks active.
+
+Verification: `yamllint --strict .github/workflows/ci.yml .github/dependabot.yml` passed in both Python 3.14 and Python 3.15 environments. The Python 3.15 installation used the documented pure-Python option. Normal Python 3.15 dev requirements remain free of yamllint/PyYAML and do not add an optional toolchain requirement.

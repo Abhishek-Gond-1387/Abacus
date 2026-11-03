@@ -1,6 +1,6 @@
 # Abacus
 
-Abacus is a research prototype for checking precise claims about Python functions. It searches for candidate counterexamples and uses trusted checks to decide what the evidence supports. A passing finite test run is not a proof of correctness. This repository tracks the Day 1–46 learning work.
+Abacus is a research prototype for checking precise claims about Python functions. It searches for candidate counterexamples and uses trusted checks to decide what the evidence supports. A passing finite test run is not a proof of correctness. This repository tracks the Day 1–47 learning work.
 
 The Day 1–3 exercises use Python's standard library. Day 5 and Day 6 use the OpenAI-compatible Python SDK and `python-dotenv`; Gemini is the default provider, with OpenAI available as an optional provider. Day 6 puts live requests behind a reusable helper and includes an offline stub.
 
@@ -426,3 +426,16 @@ The GitHub Actions matrix runs the same regression suite on both `ubuntu-24.04` 
 ## Day 46 dependency updates
 
 `.github/dependabot.yml` checks GitHub Actions and Python/pip dependencies weekly. It limits open update pull requests to two for actions and three for Python packages. Because workflow actions are pinned to commit SHAs with release-version comments, Dependabot can propose reviewable SHA updates. Update PRs still need to pass CI and be reviewed before merging; this configuration does not auto-merge them.
+
+## Day 47 GitHub YAML linting
+
+The CI job runs strict `yamllint` checks on the workflow and Dependabot configuration before the regression suite. Its CI-only pinned linter requirement and the `.yamllint` config are shared by local and GitHub checks. From the repository root, run:
+
+```powershell
+$env:PYYAML_FORCE_LIBYAML = "0"
+.\.venv\Scripts\python.exe -m pip install -r requirements-ci.txt
+Remove-Item Env:PYYAML_FORCE_LIBYAML
+.\.venv\Scripts\yamllint.exe --strict .github\workflows\ci.yml .github\dependabot.yml
+```
+
+The environment setting makes PyYAML use its pure-Python parser when installing the linter under Python 3.15, avoiding a local C++ compiler requirement. It is only needed for this optional lint install; normal runtime and dev requirements do not include PyYAML.

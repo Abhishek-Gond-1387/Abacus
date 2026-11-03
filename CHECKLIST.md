@@ -242,3 +242,12 @@
 - [x] Document the schedule and manual review/merge requirement in `README.md`.
 - [x] Review the configuration structure and pass `git diff --check`.
 - [ ] Confirm Dependabot creates update PRs after the config is pushed and its weekly check runs.
+
+## Day 47 — Lint GitHub YAML configuration
+
+- [x] Add a pinned YAML linter to CI-only requirements so normal dev installs stay compiler-free.
+- [x] Configure lint rules for GitHub's `on` key while keeping duplicate-key and formatting checks enabled.
+- [x] Run strict YAML linting for the Actions workflow and Dependabot config in CI.
+- [x] Document the local lint command in `README.md`.
+- [x] Run the strict linter locally and record its result in `NOTES.md`.
+- [ ] Confirm the new lint step passes on all GitHub-hosted matrix jobs after push.
