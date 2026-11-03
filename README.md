@@ -2,7 +2,7 @@
 
 Abacus is a research prototype for checking precise claims about Python functions. It will search for candidate counterexamples and use trusted checks to decide what the evidence supports. A passing finite test run is not a proof of correctness.
 
-This repository contains the Day 1–3 setup and Python practice exercises, plus Day 21–30 review work from the 56-day build plan. The comparison review uses Hypothesis for bounded case generation.
+This repository contains the Day 1–3 setup and Python practice exercises, plus Day 21–35 review work from the 56-day build plan. The comparison review uses Hypothesis for bounded case generation.
 
 ## Run the exercises
 
@@ -35,7 +35,7 @@ The shared run-level vocabulary and record are in practice/outcomes.py:
 - UNRESOLVED: evidence or budget is insufficient or conflicting.
 - ERROR: an external or internal error prevented evaluation.
 
-Each run outcome carries a machine-readable reason, such as confirmed_counterexample, no_counterexample_found, budget_exhausted, conflicting_evidence, or external_error. CASE_PASSED is a case-level label in the Day 21 report; it does not mean the whole run is TESTS_PASSED. The Day 21 report is the current results view; this repository does not yet have a separate UI viewer.
+Each run outcome carries a machine-readable reason, such as confirmed_counterexample, no_counterexample_found, budget_exhausted, conflicting_evidence, or external_error. CASE_PASSED is a case-level label in the Day 21 report; it does not mean the whole run is TESTS_PASSED. The Day 21 report is the static comparison view; `python -m abacus view-run` shows a saved run in the terminal. There is no graphical viewer.
 
 ## Day 23 decision policy
 
@@ -138,3 +138,11 @@ The run pipeline writes an atomic progress checkpoint after the test, proposal, 
 Run the Day 34 fixtures with:
 
     .\.venv\Scripts\python.exe -m unittest practice.test_provider_retries practice.test_run_checkpoints practice.test_day27_pipeline
+
+## Day 35 run audit
+
+Four validated examples are checked in under `practice/samples/day35_*.v2.json`. They cover REFUTED, TESTS_PASSED, UNRESOLVED, and ERROR. The audit report records their evidence, reasons, replay result, settings, provenance, and secret scan: `practice/day35_run_audit.md`.
+
+Replay and validate those samples with:
+
+    .\.venv\Scripts\python.exe -m unittest practice.test_day35_audit

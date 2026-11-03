@@ -19,7 +19,7 @@
 ## Next
 
 - Day 4 completed: staged named files, reviewed the staged diff, and created the first local commit.
-- Day 34 completed; next: Day 35 — audit a run from its saved record.
+- Day 35 completed; next: Day 36 — plan the sandbox boundary.
 
 ## Day 21 review
 
@@ -98,3 +98,11 @@ Added `python -m abacus view-run <RUN_ID>` while retaining `show-run` for raw JS
 Added a provider-call wrapper that retries only explicitly safe transient failures with at most two retries and exponential backoff. Authentication/configuration errors stop immediately. Timeouts, connection loss, and 5xx response loss are not retried because the provider may have completed the request; the failure carries ambiguous outcome and billing status. Every call attempt is reserved against the existing call, token, cost, and duration budgets, while failed-call categories and retry counts remain in the tracker events.
 
 The pipeline now saves atomic checkpoints after each completed test, proposal, and revision stage. Run discovery and the viewer expose interrupted checkpoints; a later pipeline exception builds a schema-valid `ERROR` record from the latest checkpoint and retains its evidence, stage timing, errors, proposal state, and budget snapshot. Simulated late failure confirms completed evidence survives. This project still makes no real provider calls; retries are tested with local stubs.
+
+## Day 35 audit from saved records
+
+Added four validated v2 examples in `practice/samples/day35_*.v2.json`. The REFUTED and TESTS_PASSED examples each contain 31 completed checks. The UNRESOLVED example contains 6 of 31 checks after a stubbed generator returned no Hypothesis cases; its record labels the evidence incomplete. The ERROR example contains 29 completed checks and records the optional proposal-fixture failure. All four capture the problem dataset, contract, generation settings, target/runner hashes, Git revision, model template versions, evidence, outcome reason, and completion state.
+
+Replayed the REFUTED example's saved `fixed-3` input `[3, -1, 3, 0]`. The target again returned `[-1, 0, 3]`; the oracle again returned `[-1, 0, 3, 3]`, matching the record's replay-confirmed counterexample. Scanned tracked source, ignored `runs/` JSON logs, and checked-in examples for recognized token/private-key patterns; no matches were found. The Day 31 secret-redaction regression is included in the verification suite.
+
+These examples make no provider calls, so provider/model IDs are explicitly null and prompt template versions identify the offline fixture paths. No current offline-run field was missing. Before adding hosted-model evaluation, record the redacted prompt or a stable prompt hash and the request parameters alongside the existing provider/model IDs and template versions; exact hosted responses may still vary.

@@ -30,6 +30,7 @@ New resource fields use `usage.resource_usage_version: 1`; older schema-v2 recor
 
 - `practice/samples/run_complete.v2.json` is a complete two-case `TESTS_PASSED` record.
 - `practice/samples/run_partial.v2.json` is an accepted `UNRESOLVED` record with one of two cases completed and `completion.status: "partial"` because of a round limit.
+- `practice/samples/day35_*.v2.json` are four audited end-to-end examples covering REFUTED, TESTS_PASSED, UNRESOLVED, and ERROR; see `practice/day35_run_audit.md` for the replay and provenance review.
 
 Run `python -m practice.day29_record_examples` to regenerate these files. The script uses `save_run_record()`, so both records are schema-validated before they are written. The schema tests also reject records missing the dataset version, outcome reason, or evidence references.
 

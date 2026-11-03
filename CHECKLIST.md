@@ -131,3 +131,11 @@
 - [x] Avoid retrying timeouts or lost responses automatically and mark their outcome/billing ambiguity.
 - [x] Preserve completed checkpoint evidence and budget state in a schema-valid emergency `ERROR` record.
 - [x] Simulate transient recovery, permanent authentication failure, ambiguous response loss, budget exhaustion, and a later-stage crash.
+
+## Day 35 — Audit runs from their records
+
+- [x] Save and validate representative REFUTED, TESTS_PASSED, UNRESOLVED, and ERROR run records.
+- [x] Independently replay the saved confirmed counterexample from its recorded input.
+- [x] Check that offline settings, template versions, code hashes, and Git provenance explain each run; provider/model IDs are explicitly not applicable because no API was called.
+- [x] Scan tracked files, saved run files, and checked-in examples for recognized raw-key patterns; run the secret-redaction regression test.
+- [x] Record audit gaps and the prompt/request metadata needed before any future hosted-model evaluation.

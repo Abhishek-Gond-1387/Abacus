@@ -1,0 +1,500 @@
+{
+  "schema_version": 2,
+  "run_id": "8858a4d3-b097-45dd-bf75-e2b159f642fc",
+  "run_status": "partial",
+  "timestamps": {
+    "started_at_utc": "2026-11-03T17:09:08.329059+00:00",
+    "finished_at_utc": "2026-11-03T17:09:08.362779+00:00",
+    "duration_seconds": 0.033717
+  },
+  "problem": {
+    "problem_id": "p01_true_sort",
+    "dataset_version": "sort-cases-v1",
+    "dataset_sha256": "30db2d8ded4a1a51267658162e2edbe24ede3c2ce3fd3180cb8947e4f3578485",
+    "problem_spec_sha256": "1465745642cdb09cf08eff7fd191e76b14f30e72ad5daf33c9955b5721e08bd1",
+    "dataset": {
+      "fixed_cases": [
+        [],
+        [
+          7
+        ],
+        [
+          3,
+          -1,
+          3,
+          0
+        ],
+        [
+          4,
+          4
+        ]
+      ],
+      "proposal_fixtures": [
+        {
+          "input": [
+            5,
+            2,
+            5
+          ],
+          "rationale": "A repeated value checks that sorting preserves multiplicity."
+        },
+        {
+          "input": [
+            -8,
+            0,
+            6
+          ],
+          "rationale": "Mixed signs check ascending order across zero."
+        }
+      ],
+      "hypothesis": {
+        "seed": 2701,
+        "max_examples": 25,
+        "min_size": 0,
+        "max_size": 6,
+        "min_value": -10,
+        "max_value": 10
+      }
+    },
+    "original_claim": "The function returns every input integer in ascending order and preserves duplicates.",
+    "contract": {
+      "id": "integer-sort-preserves-multiplicity-v1",
+      "oracle_id": "sorted_integer_list_v1",
+      "input_type": "integer_list",
+      "allow_empty": true
+    }
+  },
+  "target": {
+    "id": "sort_correct",
+    "code_sha256": "e3fb914118d3423561d4c3979fb9c468735670f4c0221141980c47c08a102601",
+    "runner_code_sha256": "63573f763f04771e93ca8be3e85da58ff58c1e4d1b84d6310670f76307a86089"
+  },
+  "provenance": {
+    "git_revision": "e69fa561fae29662e6e97c8c6ce035cb8370d8ce",
+    "git_dirty": false,
+    "software_versions": {
+      "python": "3.15.2",
+      "hypothesis": "6.170.14",
+      "platform": "Windows-11-10.0.26300-SP0",
+      "abacus": "0.1.0-pilot"
+    }
+  },
+  "model": {
+    "provider_id": null,
+    "model_id": null,
+    "provider_api_called": false,
+    "provider_identity_status": "not_applicable_no_provider_call",
+    "proposal_step": {
+      "status": "offline_fixtures",
+      "provider_api_called": false,
+      "count": 2
+    },
+    "prompt_template_versions": {
+      "plan_suggestions": "offline-suggestions-v1",
+      "proposal_fixtures": "offline-proposals-v1",
+      "claim_revision": "claim-revision-v1"
+    },
+    "plan_suggestions": [
+      {
+        "text": "Try empty and singleton lists as boundary cases.",
+        "source": "offline_model_suggestion_fixture",
+        "applied_as_fact": false
+      },
+      {
+        "text": "Try duplicate and negative values to exercise ordering and multiplicity.",
+        "source": "offline_model_suggestion_fixture",
+        "applied_as_fact": false
+      }
+    ]
+  },
+  "generation": {
+    "methods": [
+      "fixed",
+      "hypothesis",
+      "proposals"
+    ],
+    "random_seeds": {
+      "hypothesis": 2701
+    },
+    "settings": {
+      "hypothesis": {
+        "seed": 2701,
+        "max_examples": 25,
+        "min_size": 0,
+        "max_size": 6,
+        "min_value": -10,
+        "max_value": 10
+      },
+      "budget": {
+        "max_rounds": 1,
+        "max_wall_time_seconds": 60.0,
+        "max_model_calls": 0,
+        "max_tokens": 0,
+        "max_cost_usd": 0.0
+      }
+    },
+    "scheduled_case_count": 31,
+    "generated_case_count": 0,
+    "validated_candidate_count": 6,
+    "case_counts_by_method": {
+      "fixed": 4,
+      "hypothesis": 0,
+      "proposals": 2
+    }
+  },
+  "model_proposals": [
+    {
+      "proposal_id": "proposal-1",
+      "source": "offline_model_proposal_fixture",
+      "input": [
+        5,
+        2,
+        5
+      ],
+      "rationale": "A repeated value checks that sorting preserves multiplicity.",
+      "validated": true,
+      "evaluation_status": "evaluated"
+    },
+    {
+      "proposal_id": "proposal-2",
+      "source": "offline_model_proposal_fixture",
+      "input": [
+        -8,
+        0,
+        6
+      ],
+      "rationale": "Mixed signs check ascending order across zero.",
+      "validated": true,
+      "evaluation_status": "evaluated"
+    }
+  ],
+  "validated_candidates": [
+    {
+      "test_id": "fixed-1",
+      "method": "fixed",
+      "input": [],
+      "contract_valid": true
+    },
+    {
+      "test_id": "fixed-2",
+      "method": "fixed",
+      "input": [
+        7
+      ],
+      "contract_valid": true
+    },
+    {
+      "test_id": "fixed-3",
+      "method": "fixed",
+      "input": [
+        3,
+        -1,
+        3,
+        0
+      ],
+      "contract_valid": true
+    },
+    {
+      "test_id": "fixed-4",
+      "method": "fixed",
+      "input": [
+        4,
+        4
+      ],
+      "contract_valid": true
+    },
+    {
+      "test_id": "proposal-1",
+      "method": "proposals",
+      "input": [
+        5,
+        2,
+        5
+      ],
+      "contract_valid": true
+    },
+    {
+      "test_id": "proposal-2",
+      "method": "proposals",
+      "input": [
+        -8,
+        0,
+        6
+      ],
+      "contract_valid": true
+    }
+  ],
+  "evidence": [
+    {
+      "test_id": "fixed-1",
+      "method": "fixed",
+      "contract_id": "integer-sort-preserves-multiplicity-v1",
+      "status": "completed",
+      "contract_valid": true,
+      "oracle_id": "sorted_integer_list_v1",
+      "input": [],
+      "actual": [],
+      "expected": [],
+      "replay_confirmed": null,
+      "replay_attempted": false,
+      "replay_actual": null,
+      "replay_expected": null,
+      "category": "CASE_PASSED"
+    },
+    {
+      "test_id": "fixed-2",
+      "method": "fixed",
+      "contract_id": "integer-sort-preserves-multiplicity-v1",
+      "status": "completed",
+      "contract_valid": true,
+      "oracle_id": "sorted_integer_list_v1",
+      "input": [
+        7
+      ],
+      "actual": [
+        7
+      ],
+      "expected": [
+        7
+      ],
+      "replay_confirmed": null,
+      "replay_attempted": false,
+      "replay_actual": null,
+      "replay_expected": null,
+      "category": "CASE_PASSED"
+    },
+    {
+      "test_id": "fixed-3",
+      "method": "fixed",
+      "contract_id": "integer-sort-preserves-multiplicity-v1",
+      "status": "completed",
+      "contract_valid": true,
+      "oracle_id": "sorted_integer_list_v1",
+      "input": [
+        3,
+        -1,
+        3,
+        0
+      ],
+      "actual": [
+        -1,
+        0,
+        3,
+        3
+      ],
+      "expected": [
+        -1,
+        0,
+        3,
+        3
+      ],
+      "replay_confirmed": null,
+      "replay_attempted": false,
+      "replay_actual": null,
+      "replay_expected": null,
+      "category": "CASE_PASSED"
+    },
+    {
+      "test_id": "fixed-4",
+      "method": "fixed",
+      "contract_id": "integer-sort-preserves-multiplicity-v1",
+      "status": "completed",
+      "contract_valid": true,
+      "oracle_id": "sorted_integer_list_v1",
+      "input": [
+        4,
+        4
+      ],
+      "actual": [
+        4,
+        4
+      ],
+      "expected": [
+        4,
+        4
+      ],
+      "replay_confirmed": null,
+      "replay_attempted": false,
+      "replay_actual": null,
+      "replay_expected": null,
+      "category": "CASE_PASSED"
+    },
+    {
+      "test_id": "proposal-1",
+      "method": "proposals",
+      "contract_id": "integer-sort-preserves-multiplicity-v1",
+      "status": "completed",
+      "contract_valid": true,
+      "oracle_id": "sorted_integer_list_v1",
+      "input": [
+        5,
+        2,
+        5
+      ],
+      "actual": [
+        2,
+        5,
+        5
+      ],
+      "expected": [
+        2,
+        5,
+        5
+      ],
+      "replay_confirmed": null,
+      "replay_attempted": false,
+      "replay_actual": null,
+      "replay_expected": null,
+      "category": "CASE_PASSED"
+    },
+    {
+      "test_id": "proposal-2",
+      "method": "proposals",
+      "contract_id": "integer-sort-preserves-multiplicity-v1",
+      "status": "completed",
+      "contract_valid": true,
+      "oracle_id": "sorted_integer_list_v1",
+      "input": [
+        -8,
+        0,
+        6
+      ],
+      "actual": [
+        -8,
+        0,
+        6
+      ],
+      "expected": [
+        -8,
+        0,
+        6
+      ],
+      "replay_confirmed": null,
+      "replay_attempted": false,
+      "replay_actual": null,
+      "replay_expected": null,
+      "category": "CASE_PASSED"
+    }
+  ],
+  "replay_details": [],
+  "outcome": {
+    "outcome": "UNRESOLVED",
+    "reason": "incomplete_evidence",
+    "message": "Not all scheduled tests and required methods completed.",
+    "test_count": 6,
+    "methods": [
+      "fixed",
+      "proposals"
+    ],
+    "counterexample": null,
+    "failure_category": null,
+    "proof_checker": null,
+    "proof_evidence_id": null,
+    "evidence_references": [
+      "fixed-1",
+      "fixed-2",
+      "fixed-3",
+      "fixed-4",
+      "proposal-1",
+      "proposal-2"
+    ]
+  },
+  "completion": {
+    "status": "partial",
+    "scheduled_case_count": 31,
+    "completed_case_count": 6,
+    "incomplete_reasons": [
+      "incomplete_evidence"
+    ]
+  },
+  "revision": {
+    "status": "skipped",
+    "reason": "Revision requires a confirmed REFUTED result."
+  },
+  "usage": {
+    "resource_usage_version": 1,
+    "model_call_count": 0,
+    "successful_model_call_count": 0,
+    "failed_model_call_count": 0,
+    "retry_call_count": 0,
+    "provider_reported_token_usage": {
+      "input_tokens": null,
+      "output_tokens": null,
+      "total_tokens": null,
+      "status": "not_applicable"
+    },
+    "duration_seconds": 0.033717,
+    "stage_durations_seconds": {
+      "planning": null,
+      "proposals": 8.1e-05,
+      "tests": 0.000158,
+      "total": 0.033717
+    },
+    "stage_status": {
+      "planning": "not_configured",
+      "proposals": "completed",
+      "tests": "partial",
+      "total": "partial"
+    },
+    "pricing": {
+      "status": "not_applicable",
+      "provider_id": null,
+      "model_id": null,
+      "input_usd_per_million_tokens": null,
+      "output_usd_per_million_tokens": null,
+      "source_url": null,
+      "checked_at": null
+    },
+    "estimated_cost_usd": 0.0,
+    "actual_cost_usd": 0.0,
+    "unknown_values": []
+  },
+  "budget": {
+    "budget_configured": {
+      "max_rounds": 1,
+      "max_wall_time_seconds": 60.0,
+      "max_model_calls": 0,
+      "max_tokens": 0,
+      "max_cost_usd": 0.0
+    },
+    "usage": {
+      "rounds": 1,
+      "model_calls": 0,
+      "successful_calls": 0,
+      "retry_calls": 0,
+      "failed_calls": 0,
+      "tokens_committed_or_reserved": 0,
+      "tokens_actual": 0,
+      "tokens_actual_status": "not_applicable",
+      "tokens_open_reserved": 0,
+      "cost_committed_or_reserved_usd": 0.0,
+      "cost_estimated_usd": 0.0,
+      "cost_actual_usd": 0.0,
+      "cost_actual_status": "not_applicable",
+      "cost_open_reserved_usd": 0,
+      "elapsed_seconds": 0.033571,
+      "provider_reported_token_usage": {
+        "input_tokens": null,
+        "output_tokens": null,
+        "total_tokens": null,
+        "status": "not_applicable"
+      },
+      "evaluated_cases": 6
+    },
+    "stop_reason": null,
+    "run_outcome": null,
+    "events": [
+      {
+        "event": "round_started",
+        "round": 1,
+        "elapsed_seconds": 1.2e-05
+      },
+      {
+        "event": "round_finished",
+        "round": 1
+      }
+    ]
+  },
+  "errors": [],
+  "unknown_values": []
+}
