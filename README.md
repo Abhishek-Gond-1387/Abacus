@@ -1,6 +1,6 @@
 # Abacus
 
-Abacus is a research prototype for checking precise claims about Python functions. It searches for candidate counterexamples and uses trusted checks to decide what the evidence supports. A passing finite test run is not a proof of correctness. This repository tracks the Day 1–40 learning work.
+Abacus is a research prototype for checking precise claims about Python functions. It searches for candidate counterexamples and uses trusted checks to decide what the evidence supports. A passing finite test run is not a proof of correctness. This repository tracks the Day 1–41 learning work.
 
 The Day 1–3 exercises use Python's standard library. Day 5 and Day 6 use the OpenAI-compatible Python SDK and `python-dotenv`; Gemini is the default provider, with OpenAI available as an optional provider. Day 6 puts live requests behind a reusable helper and includes an offline stub.
 
@@ -367,3 +367,11 @@ The importable package stays at `abacus/` in the repository root so `python -m a
 Run the fixture checks with:
 
     .\.venv\Scripts\python.exe -m unittest practice.test_day40_model_outputs
+
+## Day 41 full test suite
+
+Run all maintained test fixtures with:
+
+    .\.venv\Scripts\python.exe practice\run_test_suites.py
+
+The runner executes the Day 1–20 tests against the historical `src/abacus/` package and the Day 21+ tests against the current root `abacus/` package in separate subprocesses. This prevents same-named package imports from masking either suite. Provider-facing checks use injected stubs and do not require an API key or make paid requests.

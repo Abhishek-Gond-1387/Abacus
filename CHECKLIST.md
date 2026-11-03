@@ -185,3 +185,13 @@
 - [x] Distinguish provider refusal, empty response, truncation, invalid JSON, extra text, unknown fields, wrong types, and oversized output.
 - [x] Avoid retaining raw provider text or copying untrusted text into validation errors.
 - [x] Add fixture coverage for all parser outcomes and limits; no provider API is configured or called.
+
+## Day 41 — Test the harness and safety boundaries
+
+- [x] Cover schema and contract validation, outcome selection, revision preservation, and budget/cost limits.
+- [x] Cover counterexample save/replay, atomic writes, redaction, and partial run/checkpoint records.
+- [x] Exercise provider integrations through offline/injected stubs without paid model calls.
+- [x] Test sandbox blocked actions and no-host-fallback behavior with safe fixtures.
+- [x] Keep regression fixtures for known target, oracle, parsing, logging, and interrupted-run failures.
+- [x] Add one repeatable command that runs both historical and current test suites with the correct import paths.
+- [x] Run all suites and record the result: 154 tests passed in 63.99 seconds.
