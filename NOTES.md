@@ -19,4 +19,14 @@
 ## Next
 
 - Day 4 completed: reviewed and committed the setup, then practiced a second one-line commit.
-- Day 5: make a first API call only after configuring credentials outside source code.
+- Day 5: the API example and dependencies are ready. A restricted 30-day API key is stored only in the ignored .env file. The first live request attempt failed during DNS lookup. Later requests reached the API but returned HTTP 429; the Day 6 retry identified `credit_balance_exhausted`, meaning the organization has no prepaid API credits. The usage dashboard shows Free tier, $0.00 spend, and no logged usage. The limits page lists gpt-5.4-mini at 10 RPM and 50 RPD for this tier, so this is not a request-frequency error. Upgrade tier opens an Add payment details form stating that the credit card will be saved. No payment details or purchase were submitted; never record or paste the key here.
+- Day 6: added a reusable `src/abacus/` package with environment-based OpenAI settings, a single-request helper that returns available token usage, safe error categories, and an offline fixed-response stub. The demo uses the stub by default; `--live` explicitly opts into one API request. The editable package install succeeded, and the offline demo ran successfully without an API request. One live request returned HTTP 429 with code `credit_balance_exhausted`; no payment details or credits were added.
+- 2026-11-03 update: switched the default provider to Google's Gemini API free tier (`gemini-3.1-flash-lite`) using Google's documented OpenAI-compatible Chat Completions endpoint. The adapter retains optional OpenAI support. A Gemini API key from Google AI Studio still needs to be entered locally as `GEMINI_API_KEY`; live verification is pending until that is configured. Google's free-tier terms say submitted content may be used to improve its products, so do not send secrets or private data.
+
+## Day 7 — Week 1 review
+
+- Learned: a fresh Python 3.15.2 virtual environment can run `hello.py`, `practice/day02.py`, and `practice/day03.py` using the documented setup.
+- Unclear: whether this Google project has Gemini free-tier access; a live API request remains pending until `GEMINI_API_KEY` is configured.
+- Failed: none of the clean-environment script checks failed. The live API call was not attempted because no Gemini key is configured.
+- Fixed: Day 6 now defaults to Gemini and its offline stub still runs. `.env` stays ignored by Git; `.env.example` contains placeholders only.
+- Next week's goal: begin Day 8 by defining a precise problem record and validating its required fields before adding model-generated tests.
