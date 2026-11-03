@@ -7,12 +7,21 @@ import os
 from pathlib import Path
 from typing import Any, Protocol
 
-from .schemas import MAX_MODEL_OUTPUT_BYTES, ProblemSpec
+from .schemas import (
+    MAX_MODEL_OUTPUT_BYTES,
+    CandidateProposalsOutput,
+    HypothesisOutput,
+    ModelOutputKind,
+    PlanOutput,
+    ProblemSpec,
+    parse_model_output,
+)
 
 
 DEFAULT_TIMEOUT_SECONDS = 20.0
 MAX_TIMEOUT_SECONDS = 120.0
 MAX_OUTPUT_TOKENS = 1_024
+MAX_PROMPT_BYTES = 32 * 1024
 GEMINI_OPENAI_BASE_URL = "https://generativelanguage.googleapis.com/v1beta/openai/"
 
 
@@ -62,6 +71,38 @@ class LLMClient(Protocol):
         ...
 
 
+def _validate_prompt(prompt: str) -> None:
+    if type(prompt) is not str or not prompt.strip():
+        raise ValueError("prompt must be a non-empty string")
+    try:
+        prompt_size = len(prompt.encode("utf-8"))
+    except UnicodeEncodeError:
+        raise ValueError("prompt must be valid UTF-8 text") from None
+    if prompt_size > MAX_PROMPT_BYTES:
+        raise ValueError(f"prompt exceeds the {MAX_PROMPT_BYTES}-byte limit")
+
+
+def _validate_model_id(model_id: str) -> None:
+    if type(model_id) is not str or not model_id.strip():
+        raise ValueError("model_id must be a non-empty string")
+
+
+def complete_structured_output(
+    client: LLMClient,
+    output_kind: ModelOutputKind,
+    prompt: str,
+    *,
+    model_id: str,
+) -> HypothesisOutput | PlanOutput | CandidateProposalsOutput:
+    """Call a provider and return only a strictly parsed, bounded response record."""
+    if output_kind not in {"hypothesis", "plan", "candidate_proposals"}:
+        raise ValueError("output_kind must be a supported structured model output.")
+    _validate_prompt(prompt)
+    _validate_model_id(model_id)
+    response_text = client.complete(prompt, model_id=model_id)
+    return parse_model_output(output_kind, response_text)
+
+
 class OpenAICompatibleLLMClient:
     """A bounded Gemini/OpenAI chat client. Construction is local; `complete` sends a request."""
 
@@ -70,10 +111,8 @@ class OpenAICompatibleLLMClient:
         self._client = client
 
     def complete(self, prompt: str, *, model_id: str) -> str:
-        if type(prompt) is not str or not prompt.strip():
-            raise ValueError("prompt must be a non-empty string")
-        if type(model_id) is not str or not model_id.strip():
-            raise ValueError("model_id must be a non-empty string")
+        _validate_prompt(prompt)
+        _validate_model_id(model_id)
 
         try:
             from openai import (

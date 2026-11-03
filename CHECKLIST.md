@@ -257,7 +257,8 @@
 - [x] Review the pushed Day 47 GitHub Actions matrix and identify the Windows-only YAML lint failure.
 - [x] Pin tracked `.yml` files to LF with `.gitattributes` so Windows checkouts satisfy yamllint.
 - [x] Record the GitHub Actions findings and fix in `NOTES.md`.
-- [ ] Push the fix and confirm the latest Linux and Windows matrix jobs pass.
+- [x] Confirm the Day 48 fix commit is present on remote-tracking `origin/main`.
+- [ ] Confirm the latest Linux and Windows matrix jobs pass.
 
 ## Day 49 — Add an explicit hosted-provider client
 
@@ -267,4 +268,15 @@
 - [x] Map refusal and provider failures to safe categories without copying provider response bodies into errors.
 - [x] Document provider configuration, opt-in behavior, and strict output parsing.
 - [x] Compile changed Python code and pass `git diff --check`.
-- [ ] Push the accumulated Day 48–49 commits and confirm all four hosted CI jobs pass.
+- [x] Confirm the Day 48–49 commits are present on remote-tracking `origin/main`.
+- [ ] Confirm all four hosted CI jobs pass.
+
+## Day 50 — Validate hosted responses at the provider boundary
+
+- [x] Add one helper that calls the explicit provider client and runs the strict output parser before returning data.
+- [x] Validate output kind, UTF-8 prompt encoding, and the 32-KiB prompt limit before making a request.
+- [x] Return only the immutable typed output records; do not pass raw provider text to callers.
+- [x] Preserve the offline run pipeline and trusted evaluator as the default path.
+- [x] Document that parsed model suggestions still require contract validation and oracle evaluation.
+- [x] Compile changed Python code and pass `git diff --check`.
+- [ ] Push the Day 50 commit and confirm all four hosted CI jobs pass.

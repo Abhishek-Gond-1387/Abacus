@@ -1,6 +1,6 @@
 # Abacus
 
-Abacus is a research prototype for checking precise claims about Python functions. It searches for candidate counterexamples and uses trusted checks to decide what the evidence supports. A passing finite test run is not a proof of correctness. This repository tracks the Day 1–49 learning work.
+Abacus is a research prototype for checking precise claims about Python functions. It searches for candidate counterexamples and uses trusted checks to decide what the evidence supports. A passing finite test run is not a proof of correctness. This repository tracks the Day 1–50 learning work.
 
 The Day 1–3 exercises use Python's standard library. Day 5 and Day 6 use the OpenAI-compatible Python SDK and `python-dotenv`; Gemini is the default provider, with OpenAI available as an optional provider. Day 6 puts live requests behind a reusable helper and includes an offline stub.
 
@@ -449,3 +449,7 @@ The environment setting makes PyYAML use its pure-Python parser when installing 
 `abacus.llm.create_llm_client()` creates a Gemini or OpenAI-compatible client from `ABACUS_LLM_PROVIDER` and the matching API key in the process environment or ignored project `.env`. Creating the client makes no request. Only calling `complete(prompt, model_id=...)` sends the prompt; it uses a bounded timeout, disables hidden SDK retries, caps output tokens and response bytes, and returns untrusted text for validation with `abacus.schemas.parse_model_output`. The caller supplies the model ID from its own approved configuration.
 
 Provider calls send prompt content to the selected service and may use account quota or incur charges. Keep the offline fixtures as the default workflow and never send secrets or private data in prompts. Gemini's OpenAI-compatible endpoint is documented by [Google](https://ai.google.dev/gemini-api/docs/openai); client timeout and retry settings follow the [official OpenAI Python library](https://github.com/openai/openai-python).
+
+## Day 50 structured provider response boundary
+
+Use `abacus.llm.complete_structured_output(client, output_kind, prompt, model_id=...)` when a hosted response is explicitly requested. It validates the request kind and prompt size before sending anything, then returns only an immutable `HypothesisOutput`, `PlanOutput`, or `CandidateProposalsOutput` after strict JSON/schema checks. Raw provider text stays inside the helper. The returned suggestions remain untrusted: candidate inputs still need contract checking and trusted oracle evaluation before they count as evidence. The normal `python -m abacus run` workflow continues to use offline fixtures and makes no provider calls.
