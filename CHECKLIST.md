@@ -215,3 +215,12 @@
 - [x] Document workflow triggers, versions, and the local equivalent in `README.md`.
 - [x] Review the workflow structure and pass `git diff --check`; record validation limits in `NOTES.md`.
 - [ ] Confirm the first GitHub-hosted workflow run is green after the commit is pushed.
+
+## Day 44 — Smoke-test the CLI in CI
+
+- [x] Invoke `python -m abacus run` as a subprocess for both current seed problems.
+- [x] Verify the CLI summary and persisted JSON agree on the expected outcomes.
+- [x] Confirm both examples require no provider API call and the false example replays its counterexample.
+- [x] Keep smoke-test artifacts in a temporary directory and include the checks in the unified suite.
+- [x] Document the smoke checks and their standalone command in `README.md`.
+- [x] Run the focused smoke tests and record the result in `NOTES.md`.

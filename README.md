@@ -1,6 +1,6 @@
 # Abacus
 
-Abacus is a research prototype for checking precise claims about Python functions. It searches for candidate counterexamples and uses trusted checks to decide what the evidence supports. A passing finite test run is not a proof of correctness. This repository tracks the Day 1–43 learning work.
+Abacus is a research prototype for checking precise claims about Python functions. It searches for candidate counterexamples and uses trusted checks to decide what the evidence supports. A passing finite test run is not a proof of correctness. This repository tracks the Day 1–44 learning work.
 
 The Day 1–3 exercises use Python's standard library. Day 5 and Day 6 use the OpenAI-compatible Python SDK and `python-dotenv`; Gemini is the default provider, with OpenAI available as an optional provider. Day 6 puts live requests behind a reusable helper and includes an offline stub.
 
@@ -410,3 +410,11 @@ The fresh-checkout procedure above was verified in a detached clean worktree wit
 ## Day 43 continuous integration
 
 `.github/workflows/ci.yml` runs the complete regression suite on pushes to `main`, pull requests targeting `main`, and manual dispatch. It checks the declared minimum Python version (3.11) and Python 3.14, installs the same runtime and test requirements as the clean-install instructions, and requires no API key or provider request. The workflow grants only `contents: read` and pins its GitHub Actions to verified commit SHAs.
+
+## Day 44 CLI smoke checks
+
+The unified suite now runs the real `python -m abacus run` command in isolated subprocesses for both checked-in current seed records. It checks the saved run JSON and CLI summary: the true seed must return `TESTS_PASSED`, while the false seed must return `REFUTED` with its counterexample replay confirmed. Provider keys are removed from the subprocess environment, and both runs must report that no provider API was called. Run these checks alone with:
+
+```powershell
+.\.venv\Scripts\python.exe -m unittest practice.test_day44_cli_smoke
+```

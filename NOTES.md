@@ -270,3 +270,9 @@ The complete runner passed on the fresh environment: 52 historical Day 1–20 te
 Added `.github/workflows/ci.yml`. It runs the unified 154-test suite on pushes and pull requests for `main`, plus manual dispatch, using Python 3.11 (the package's declared minimum) and 3.14 on Ubuntu 24.04. The workflow follows the Day 42 clean install, uses a pip cache keyed by both requirements files, has a 10-minute job timeout, grants only `contents: read`, and supplies no provider credentials. `actions/checkout` and `actions/setup-python` are pinned to verified release commit SHAs.
 
 Local checks: manually reviewed workflow triggers, matrix, action references, permissions, dependency paths, and command indentation; `git diff --check` passed. No YAML/actionlint parser is installed in this environment, so a machine YAML parse and GitHub-hosted matrix run remain pending until the workflow reaches GitHub.
+
+## Day 44 CLI smoke checks
+
+Added `practice/test_day44_cli_smoke.py`; because the Day 21+ suite discovers `practice/test_*.py`, these subprocess checks run automatically in CI. They invoke the CLI against `p01_true_sort` and `p02_false_sort`, verify the console summary and saved JSON outcomes, require `provider_api_called` to remain false, and require confirmed counterexample replay for the false seed. Each run writes only to a temporary directory, and the child process receives no provider API keys. Focused test results are recorded after execution.
+
+Verification: the focused smoke suite passed 2/2 tests in 3.76 seconds. The complete unified regression suite passed 156 tests: 52 historical Day 1–20 tests and 104 current Day 21+ tests, in 54.05 seconds. All runs completed without live provider calls.
