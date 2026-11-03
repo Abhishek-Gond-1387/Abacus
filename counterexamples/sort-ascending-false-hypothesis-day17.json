@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "problem_id": "sort-ascending-false",
+  "input": [
+    0,
+    1
+  ],
+  "source": "hypothesis.find; version=6.170.14; strategy=lists(integers(-20..20), min_size=0, max_size=12); max_examples=40; database=None; deadline_ms=5000; random_seed=17017",
+  "seed": 17017,
+  "contract_validity": {
+    "valid": true,
+    "reason": null
+  },
+  "observed_result": {
+    "status": "REFUTED",
+    "target_result": [
+      1,
+      0
+    ],
+    "target_exception": null,
+    "oracle_status": "REFUTED",
+    "oracle_reason": "candidate output differs from the sorted reference",
+    "explanation": "candidate output differs from the sorted reference"
+  },
+  "expected_property": {
+    "oracle_id": "sorted-integer-list-v1",
+    "description": "The result contains exactly the input integers with multiplicities preserved, arranged in nondecreasing order. Empty lists are valid, and the input list is not mutated.",
+    "expected_output": [
+      0,
+      1
+    ]
+  },
+  "versions": {
+    "target_code_sha256": "75a3b47cea363677256987fe410e13661e80106793bd0df50630119b8a2cfcaa",
+    "problem_record_sha256": "ebdd4a77dd0b23f84212b73253643ff2c5ee2561d566859490a13382a05e18b0"
+  }
+}
