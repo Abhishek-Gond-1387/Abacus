@@ -112,3 +112,12 @@
 - [x] Support model-specific input/output rates with pricing source URL and checked date; leave missing costs unknown.
 - [x] Add a run summary with medians and ranges for measured usage.
 - [x] Test that absent provider usage stays unknown instead of becoming zero.
+
+## Day 33 — Build a useful run viewer
+
+- [x] Add `view-run <run_id>` for readable summaries while keeping raw `show-run` available.
+- [x] Display claim, contract, verdict/reason, test methods/counts, candidate counterexamples, and replay status.
+- [x] Separate unverified model suggestions from harness-recorded evidence.
+- [x] Mark `TESTS_PASSED` as finite testing, not proof.
+- [x] Keep completed evidence, errors, and incomplete reasons visible for partial/error runs.
+- [x] Exercise true, false, unresolved, and error run records.

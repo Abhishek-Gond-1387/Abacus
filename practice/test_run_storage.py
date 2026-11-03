@@ -57,6 +57,13 @@ class RunStorageTests(unittest.TestCase):
 
             output = io.StringIO()
             with redirect_stdout(output):
+                result = cli.main(["view-run", selected_id, "--runs-dir", directory])
+            self.assertEqual(result, 0)
+            self.assertIn("RUN SUMMARY", output.getvalue())
+            self.assertIn("Full evidence record:", output.getvalue())
+
+            output = io.StringIO()
+            with redirect_stdout(output):
                 result = cli.main(["summarize-runs", spec.problem_id, "--runs-dir", directory])
             self.assertEqual(result, 0)
             summary = json.loads(output.getvalue())

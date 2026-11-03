@@ -19,7 +19,7 @@
 ## Next
 
 - Day 4 completed: staged named files, reviewed the staged diff, and created the first local commit.
-- Day 32 completed; next: Day 33 — build a useful run viewer.
+- Day 33 completed; next: Day 34 — handle retries and partial failures.
 
 ## Day 21 review
 
@@ -88,3 +88,7 @@ The fake secret sentinel is split in the fixture source, injected through a sens
 ## Day 32 resource usage
 
 Added provider token-usage normalization for common input/output field names. When calls exist but usage is missing, token and cost values remain unknown; zero is reported only for a run with no provider calls. Budget tracking now separates call attempts, successful calls, failures, and retries, and keeps provider-reported token totals distinct from estimates. Run records include planning/proposal/test/total durations and an optional model-specific pricing snapshot with its source URL and checked date. `summarize-runs` reports median/range metrics across saved runs. This pilot still makes no provider calls, so its API tokens and pricing are not applicable. Pricing is not prefilled because no provider/model has been selected.
+
+## Day 33 readable run viewer
+
+Added `python -m abacus view-run <RUN_ID>` while retaining `show-run` for raw JSON. The text summary shows the original claim/contract, verdict/reason, completed and scheduled counts, methods, candidate counterexamples with replay status, errors, incomplete reasons, and a path to the full evidence. Model suggestions and proposal fixtures are explicitly labeled unverified and kept apart from harness evidence. `TESTS_PASSED` always carries the note “No counterexample found in these tests; not a proof.” True, false, unresolved, and error fixtures cover the viewer.

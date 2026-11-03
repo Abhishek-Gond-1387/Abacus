@@ -33,6 +33,7 @@ from practice.run_records import (
     sanitize_run_record_for_log,
 )
 from practice.usage_metrics import PricingConfig, calculate_actual_cost_usd, summarize_run_usage
+from practice.run_view import render_run_summary
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -1007,6 +1008,9 @@ def main(argv: list[str] | None = None) -> int:
     show_parser = subparsers.add_parser("show-run", help="open one saved run record by run ID")
     show_parser.add_argument("run_id", help="UUID from list-runs")
     show_parser.add_argument("--runs-dir", type=Path, default=RUNS_DIR)
+    view_parser = subparsers.add_parser("view-run", help="show a readable summary for one run ID")
+    view_parser.add_argument("run_id", help="UUID from list-runs")
+    view_parser.add_argument("--runs-dir", type=Path, default=RUNS_DIR)
     summary_parser = subparsers.add_parser("summarize-runs", help="summarize resource usage across saved runs")
     summary_parser.add_argument("problem_id", nargs="?", help="optionally summarize one problem")
     summary_parser.add_argument("--runs-dir", type=Path, default=RUNS_DIR)
@@ -1025,6 +1029,21 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         print(json.dumps(record, indent=2, ensure_ascii=False))
         return 0
+    if args.command == "view-run":
+        record = find_run_record(args.runs_dir, args.run_id)
+        if record is None:
+            print(f"Run ID not found: {args.run_id}", file=sys.stderr)
+            return 2
+        entries = list_run_records(args.runs_dir)
+        record_path = next(
+            (item["path"] for item in entries["runs"] if item["run_id"] == args.run_id),
+            None,
+        )
+        if "incomplete_marker" in record:
+            marker = record["incomplete_marker"]
+            record_path = marker.get("marker_path", record_path)
+        print(render_run_summary(record, record_path=record_path))
+        return 1 if "incomplete_marker" in record else 0
     if args.command == "summarize-runs":
         entries = list_run_records(args.runs_dir, problem_id=args.problem_id)
         records = [load_run_record(item["path"]) for item in entries["runs"]]

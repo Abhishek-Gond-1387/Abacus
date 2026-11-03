@@ -120,3 +120,11 @@ Each run records model-call attempts, successful and failed calls, retry attempt
 Provider pricing is optional per problem. When a provider/model is selected, supply `provider_id`, `model_id`, `input_usd_per_million_tokens`, `output_usd_per_million_tokens`, `source_url`, and `checked_at` from the current pricing page. Omit the configuration while rates are unknown; the logger will not substitute zero.
 
 Use `python -m abacus summarize-runs [problem_id]` for per-run medians and ranges. Its output keeps unknown and not-applicable counts separate from measured values.
+
+## Day 33 readable run viewer
+
+Open a saved run by UUID without reading its raw JSON:
+
+    .\.venv\Scripts\python.exe -m abacus view-run <RUN_ID>
+
+The viewer keeps model suggestions in a separate unverified section, shows harness-recorded checks and replay status, preserves errors and incomplete reasons, and links to the full evidence record. A `TESTS_PASSED` run displays “No counterexample found in these tests; not a proof.”
