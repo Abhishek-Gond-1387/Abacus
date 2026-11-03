@@ -1,0 +1,50 @@
+{
+  "budget_configured": {
+    "max_rounds": 1,
+    "max_wall_time_seconds": 10.0,
+    "max_model_calls": 2,
+    "max_tokens": 4,
+    "max_cost_usd": 0.02
+  },
+  "usage": {
+    "rounds": 1,
+    "model_calls": 0,
+    "retry_calls": 0,
+    "failed_calls": 0,
+    "tokens_committed_or_reserved": 0,
+    "tokens_actual": 0,
+    "tokens_open_reserved": 0,
+    "cost_committed_or_reserved_usd": 0.0,
+    "cost_actual_usd": 0.0,
+    "cost_open_reserved_usd": 0,
+    "elapsed_seconds": 0.00036
+  },
+  "stop_reason": "token_limit",
+  "run_outcome": {
+    "outcome": "UNRESOLVED",
+    "reason": "budget_exhausted",
+    "message": "Evidence is incomplete because token_limit was reached.",
+    "test_count": null,
+    "methods": [],
+    "counterexample": null,
+    "failure_category": null,
+    "proof_checker": null,
+    "proof_evidence_id": null
+  },
+  "events": [
+    {
+      "event": "round_started",
+      "round": 1,
+      "elapsed_seconds": 1.1e-05
+    },
+    {
+      "event": "budget_exhausted",
+      "reason": "token_limit",
+      "elapsed_seconds": 3.3e-05
+    },
+    {
+      "event": "round_finished",
+      "round": 1
+    }
+  ]
+}

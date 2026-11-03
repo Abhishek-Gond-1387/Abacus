@@ -36,3 +36,12 @@
 - [x] Keep the original benchmark label and scored claim immutable.
 - [x] Render original and revised claims and mark the original as the evaluation target.
 - [x] Exercise the all-lists to non-empty-lists narrowing example.
+
+## Day 25 — Add round, time, and token budgets
+
+- [x] Configure maximum rounds, wall time, model-call attempts, tokens, and cost.
+- [x] Reserve and check the next call's estimated time/tokens/cost before any API call.
+- [x] Return UNRESOLVED with budget_exhausted when evidence is incomplete at a stop.
+- [x] Save configured limits, usage, attempts/retries, and stop reason to a partial JSON log.
+- [x] Verify normal completion and deliberately tiny budgets.
+- [x] Count retries against call, wall-time, token, and cost budgets.

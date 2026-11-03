@@ -2,7 +2,7 @@
 
 Abacus is a research prototype for checking precise claims about Python functions. It will search for candidate counterexamples and use trusted checks to decide what the evidence supports. A passing finite test run is not a proof of correctness.
 
-This repository contains the Day 1–3 setup and Python practice exercises, plus Day 21–24 review work from the 56-day build plan. The comparison review uses Hypothesis for bounded case generation.
+This repository contains the Day 1–3 setup and Python practice exercises, plus Day 21–25 review work from the 56-day build plan. The comparison review uses Hypothesis for bounded case generation.
 
 ## Run the exercises
 
@@ -57,3 +57,16 @@ Generate the offline example view and run its fixtures:
     .\.venv\Scripts\python.exe -m unittest practice.test_revisions
 
 The example narrows an all-integer-lists claim to non-empty integer lists after an empty-list counterexample. It does not call a provider API. The view is saved to practice/day24_revision_view.md.
+
+## Day 25 run budgets
+
+BudgetTracker in practice/budgets.py tracks rounds, wall time, model-call attempts, tokens, and estimated/actual cost. Reserve a call before sending it; the reservation checks remaining budgets and includes the expected duration. Each retry is another call attempt and consumes the same budgets. Failed calls keep their estimate because usage may be unknown.
+
+Incomplete evidence after a budget stop is recorded as UNRESOLVED with reason budget_exhausted. The JSON run log stores configured limits, usage, events, and the stop reason.
+
+Run the tiny-budget example and fixtures:
+
+    .\.venv\Scripts\python.exe practice\day25_budget_example.py
+    .\.venv\Scripts\python.exe -m unittest practice.test_budgets
+
+The example writes practice/day25_tiny_budget_log.json without making a provider call.
