@@ -11,6 +11,7 @@ import platform
 import subprocess
 import sys
 import time
+from dataclasses import asdict
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable, Mapping
@@ -40,7 +41,11 @@ from abacus.experiment import (
     scheduled_count as _scheduled_count,
 )
 from abacus.llm import (
+    LLMNotConfiguredError,
+    LLMProviderError,
     collect_offline_proposals,
+    complete_structured_output,
+    create_llm_client,
     model_proposal_records as _model_proposal_records,
 )
 from abacus.prompts import (
@@ -48,7 +53,7 @@ from abacus.prompts import (
     PROMPT_TEMPLATE_VERSIONS,
     build_model_prompt,
 )
-from abacus.schemas import ProblemSpec, ProblemValidationError, load_problem, parse_problem
+from abacus.schemas import ModelOutputError, ProblemSpec, ProblemValidationError, load_problem, parse_problem
 from abacus.sandbox import EXECUTION_FLAG, MAX_INPUT_BYTES, MAX_SOURCE_BYTES, SandboxError, SandboxRunner
 from abacus.targets import ORACLES, TARGETS
 from abacus.verifier import ClaimContract, decide
@@ -1009,6 +1014,24 @@ def main(argv: list[str] | None = None) -> int:
         choices=tuple(HOSTED_PROMPT_TEMPLATE_VERSIONS),
         help="structured model output kind to preview",
     )
+    suggest_parser = subparsers.add_parser(
+        "model-suggest",
+        help="make one explicitly authorized hosted request and return parsed suggestions",
+    )
+    suggest_parser.add_argument("problem", help="path to a validated problem JSON file")
+    suggest_parser.add_argument(
+        "--kind",
+        required=True,
+        choices=tuple(HOSTED_PROMPT_TEMPLATE_VERSIONS),
+        help="structured model output kind to request",
+    )
+    suggest_parser.add_argument("--model", required=True, help="provider model ID for this request")
+    suggest_parser.add_argument(
+        "--send-to-provider",
+        action="store_true",
+        required=True,
+        help="required confirmation; sends the claim and test context to the configured provider",
+    )
     untrusted_parser = subparsers.add_parser(
         "execute-untrusted",
         help="run a candidate(value) function only through the verified container sandbox",
@@ -1097,6 +1120,85 @@ def main(argv: list[str] | None = None) -> int:
             "target_source_included": False,
             "provider_api_called": False,
             "prompt": prompt,
+        }, indent=2, ensure_ascii=False))
+        return 0
+
+    if args.command == "model-suggest":
+        if not args.model.strip():
+            print(json.dumps({
+                "status": "invalid_request",
+                "provider_api_called": False,
+                "error": "--model must be a non-empty model ID.",
+            }, ensure_ascii=False))
+            return 2
+        try:
+            prompt = build_model_prompt(args.kind, spec)
+        except (TypeError, ValueError) as error:
+            print(json.dumps({
+                "status": "invalid_prompt",
+                "provider_api_called": False,
+                "error": str(error),
+            }, ensure_ascii=False))
+            return 2
+
+        try:
+            client = create_llm_client()
+        except LLMNotConfiguredError as error:
+            print(json.dumps({
+                "status": "not_configured",
+                "provider_api_called": False,
+                "error": str(error),
+            }, ensure_ascii=False))
+            return 2
+
+        try:
+            result = complete_structured_output(
+                client,
+                args.kind,
+                prompt,
+                model_id=args.model,
+            )
+        except LLMNotConfiguredError as error:
+            print(json.dumps({
+                "status": "not_configured",
+                "provider_api_called": False,
+                "error": str(error),
+            }, ensure_ascii=False))
+            return 2
+        except (LLMProviderError, ModelOutputError) as error:
+            print(json.dumps({
+                "status": "error",
+                "output_kind": args.kind,
+                "model_id": args.model,
+                "provider_api_called": True,
+                "usage_recorded": False,
+                "error_category": error.category,
+            }, ensure_ascii=False))
+            return 1
+        except ValueError as error:
+            print(json.dumps({
+                "status": "invalid_request",
+                "provider_api_called": False,
+                "error": str(error),
+            }, ensure_ascii=False))
+            return 2
+        finally:
+            close = getattr(client, "close", None)
+            if callable(close):
+                try:
+                    close()
+                except Exception:
+                    pass
+
+        print(json.dumps({
+            "status": "suggestions_ready",
+            "output_kind": args.kind,
+            "template_version": HOSTED_PROMPT_TEMPLATE_VERSIONS[args.kind],
+            "model_id": args.model,
+            "provider_api_called": True,
+            "usage_recorded": False,
+            "suggestions_are_evidence": False,
+            "result": asdict(result),
         }, indent=2, ensure_ascii=False))
         return 0
 

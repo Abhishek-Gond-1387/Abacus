@@ -303,3 +303,13 @@
 - [x] Compile changed Python code and pass `git diff --check`.
 - [x] Confirm the Day 52 commit is present on remote-tracking `origin/main`.
 - [ ] Confirm all four hosted CI jobs pass.
+
+## Day 53 — Request one typed hosted suggestion
+
+- [x] Add `model-suggest` for one of the three strict output kinds and a required model ID.
+- [x] Require `--send-to-provider` before any credential loading or provider request.
+- [x] Send only the versioned bounded prompt and return only parsed typed output.
+- [x] Report safe failure categories; do not persist raw responses or usage/cost data, apply suggestions, or treat them as evidence.
+- [x] Document provider cost/data flow and the local prompt-preview command.
+- [x] Compile changed Python code and pass `git diff --check`.
+- [ ] Push the Day 53 commit and confirm all four hosted CI jobs pass.

@@ -1,6 +1,6 @@
 # Abacus
 
-Abacus is a research prototype for checking precise claims about Python functions. It searches for candidate counterexamples and uses trusted checks to decide what the evidence supports. A passing finite test run is not a proof of correctness. This repository tracks the Day 1–52 learning work.
+Abacus is a research prototype for checking precise claims about Python functions. It searches for candidate counterexamples and uses trusted checks to decide what the evidence supports. A passing finite test run is not a proof of correctness. This repository tracks the Day 1–53 learning work.
 
 The Day 1–3 exercises use Python's standard library. Day 5 and Day 6 use the OpenAI-compatible Python SDK and `python-dotenv`; Gemini is the default provider, with OpenAI available as an optional provider. Day 6 puts live requests behind a reusable helper and includes an offline stub.
 
@@ -467,3 +467,13 @@ Preview the exact bounded prompt and template version without loading provider c
 ```
 
 Use `--kind hypothesis`, `--kind plan`, or `--kind candidate_proposals`. The JSON result says `provider_api_called: false`; inspect the prompt before any separate explicit provider call. The normal `run` command remains offline.
+
+## Day 53 one-shot hosted suggestions
+
+To request one typed suggestion, use `model-suggest` with the model ID and the required `--send-to-provider` flag:
+
+```powershell
+.\.venv\Scripts\python.exe -m abacus model-suggest problems\p01_true_sort.json --kind candidate_proposals --model gemini-3.1-flash-lite --send-to-provider
+```
+
+This sends the claim and test-case context to the configured provider, can use provider quota or incur charges, and returns only the strictly parsed result. It makes one request with the existing 1,024 output-token cap and no hidden SDK retries. The command does not save a run record or usage/cost data, apply suggestions, or treat them as evidence; candidate inputs still need trusted contract checks and evaluation. Preview the prompt with `prompt-preview` first. The `--send-to-provider` flag is mandatory, and the regular `run` command remains offline.
