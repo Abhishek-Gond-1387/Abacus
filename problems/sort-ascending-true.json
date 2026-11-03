@@ -1,0 +1,17 @@
+{
+  "id": "sort-ascending-true",
+  "title": "Built-in sorted returns ascending integers",
+  "claim": "For every finite list of integers, the candidate returns the same integer values in nondecreasing order.",
+  "code": "def candidate(values):\n    return sorted(values)",
+  "domain": {
+    "input_type": "list[int]",
+    "output_type": "list[int]",
+    "description": "All finite Python lists of integers, including empty lists; booleans are excluded from the domain."
+  },
+  "preconditions": [],
+  "property_description": "The result contains exactly the input integers with multiplicities preserved, arranged in nondecreasing order. Empty lists are valid, and the input list is not mutated.",
+  "oracle_id": "sorted-integer-list-v1",
+  "expected_label": "TRUE",
+  "label_rationale": "The candidate delegates to Python's sorted function, which returns the list elements in ascending order without changing the input.",
+  "family": "sorting"
+}

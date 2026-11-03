@@ -51,3 +51,13 @@ The demo runs the stub by default. To also make one live request—which uses pr
 ```
 
 Configure `ABACUS_LLM_PROVIDER`, `GEMINI_MODEL`, `GEMINI_API_KEY`, and optionally `GEMINI_TIMEOUT_SECONDS` in `.env` or the process environment. When using OpenAI, use `OPENAI_MODEL`, `OPENAI_API_KEY`, and optionally `OPENAI_TIMEOUT_SECONDS`. The `.env.example` file contains placeholders only.
+
+## Day 8: problem records
+
+The record contract and field types are documented in [`schemas/README.md`](schemas/README.md). `src/abacus/problems.py` validates JSON structure without executing candidate code or calling a model. The two hand-authored examples in `problems/` show one true and one false sorting claim. `claim` remains the canonical original wording; any later model interpretation must be stored separately.
+
+Validate both examples with:
+
+```powershell
+.\.venv\Scripts\python.exe -m abacus.problems problems\sort-ascending-true.json problems\sort-ascending-false.json
+```

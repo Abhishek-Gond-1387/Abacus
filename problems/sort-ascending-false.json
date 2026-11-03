@@ -1,0 +1,23 @@
+{
+  "id": "sort-ascending-false",
+  "title": "Reverse sorting does not return ascending integers",
+  "claim": "For every finite list of integers, the candidate returns the same integer values in nondecreasing order.",
+  "code": "def candidate(values):\n    return sorted(values, reverse=True)",
+  "domain": {
+    "input_type": "list[int]",
+    "output_type": "list[int]",
+    "description": "All finite Python lists of integers, including empty lists; booleans are excluded from the domain."
+  },
+  "preconditions": [],
+  "property_description": "The result contains exactly the input integers with multiplicities preserved, arranged in nondecreasing order. Empty lists are valid, and the input list is not mutated.",
+  "oracle_id": "sorted-integer-list-v1",
+  "expected_label": "FALSE",
+  "label_rationale": "The candidate requests reverse order, so the input [1, 2] is returned as [2, 1], violating the nondecreasing-order part of the claim.",
+  "family": "sorting",
+  "known_counterexample": {
+    "input": [1, 2],
+    "expected_output": [1, 2],
+    "actual_output": [2, 1],
+    "reason": "The output is descending rather than nondecreasing."
+  }
+}

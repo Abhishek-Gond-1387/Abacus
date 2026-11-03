@@ -30,3 +30,10 @@
 - Failed: none of the clean-environment script checks failed. The live API call was not attempted because no Gemini key is configured.
 - Fixed: Day 6 now defaults to Gemini and its offline stub still runs. `.env` stays ignored by Git; `.env.example` contains placeholders only.
 - Next week's goal: begin Day 8 by defining a precise problem record and validating its required fields before adding model-generated tests.
+
+## Day 8 — Define a problem record
+
+- Added a standard-library validator and documented the field types, required fields, labels, domain object, and false-claim counterexample rule.
+- Added hand-authored true and false sorting records. The original `claim` is stored separately and is never rewritten by model output; the loader does not execute `code` or call an LLM.
+- Validated both example files and checked that missing `id`, an invalid label, and a false record without `known_counterexample` are rejected.
+- Next: Day 9 — implement the independent trusted sorting property and test it against a correct and faulty candidate.
