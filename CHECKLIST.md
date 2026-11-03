@@ -45,3 +45,13 @@
 - [x] Save configured limits, usage, attempts/retries, and stop reason to a partial JSON log.
 - [x] Verify normal completion and deliberately tiny budgets.
 - [x] Count retries against call, wall-time, token, and cost budgets.
+
+## Day 26 — Check the checker
+
+- [x] Add correct and known-defective sort and largest fixture functions.
+- [x] Check fixture outputs against manually written expected answers.
+- [x] Inject a faulty oracle and detect its disagreement with the manual fixtures.
+- [x] Demonstrate that a faulty oracle can falsely accuse a correct target.
+- [x] Check sort idempotence and record that it misses duplicate removal.
+- [x] Replay all saved Day 21 counterexamples.
+- [x] Record remaining oracle uncertainty and reviewer availability.

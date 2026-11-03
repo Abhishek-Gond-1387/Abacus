@@ -2,7 +2,7 @@
 
 Abacus is a research prototype for checking precise claims about Python functions. It will search for candidate counterexamples and use trusted checks to decide what the evidence supports. A passing finite test run is not a proof of correctness.
 
-This repository contains the Day 1–3 setup and Python practice exercises, plus Day 21–25 review work from the 56-day build plan. The comparison review uses Hypothesis for bounded case generation.
+This repository contains the Day 1–3 setup and Python practice exercises, plus Day 21–26 review work from the 56-day build plan. The comparison review uses Hypothesis for bounded case generation.
 
 ## Run the exercises
 
@@ -70,3 +70,12 @@ Run the tiny-budget example and fixtures:
     .\.venv\Scripts\python.exe -m unittest practice.test_budgets
 
 The example writes practice/day25_tiny_budget_log.json without making a provider call.
+
+## Day 26 checker validation
+
+Run the checker audit and its fixtures:
+
+    .\.venv\Scripts\python.exe practice\day26_validation.py
+    .\.venv\Scripts\python.exe -m unittest practice.test_day26_validation
+
+The audit compares correct and deliberately faulty sort/largest functions against manually written expected outputs, checks an intentionally defective oracle, replays every Day 21 saved counterexample, and demonstrates that sort idempotence misses duplicate removal. Results are written to practice/day26_checker_report.md. The finite fixtures reduce shared-oracle risk for these cases but do not establish full oracle soundness; the manual answers have not had an independent human review.
