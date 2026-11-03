@@ -2,7 +2,7 @@
 
 Abacus is a research prototype for checking precise claims about Python functions. It will search for candidate counterexamples and use trusted checks to decide what the evidence supports. A passing finite test run is not a proof of correctness.
 
-This repository contains the Day 1–3 setup and Python practice exercises, plus Day 21–26 review work from the 56-day build plan. The comparison review uses Hypothesis for bounded case generation.
+This repository contains the Day 1–3 setup and Python practice exercises, plus Day 21–27 review work from the 56-day build plan. The comparison review uses Hypothesis for bounded case generation.
 
 ## Run the exercises
 
@@ -79,3 +79,13 @@ Run the checker audit and its fixtures:
     .\.venv\Scripts\python.exe -m unittest practice.test_day26_validation
 
 The audit compares correct and deliberately faulty sort/largest functions against manually written expected outputs, checks an intentionally defective oracle, replays every Day 21 saved counterexample, and demonstrates that sort idempotence misses duplicate removal. Results are written to practice/day26_checker_report.md. The finite fixtures reduce shared-oracle risk for these cases but do not establish full oracle soundness; the manual answers have not had an independent human review.
+
+## Day 27 end-to-end pilot
+
+Run a JSON problem through validation, fixed cases, seeded Hypothesis cases, offline proposal fixtures, replay, the evidence decision policy, optional revision, and JSON logging:
+
+    .\.venv\Scripts\python.exe -m abacus run problems/p01_true_sort.json
+    .\.venv\Scripts\python.exe -m abacus run problems/p02_false_sort.json
+    .\.venv\Scripts\python.exe -m unittest practice.test_day27_pipeline
+
+Problem files are validated before evaluation. Targets and oracles are selected from a small allowlist; JSON files cannot name Python code to execute. The pilot uses offline suggestion/proposal fixtures and makes no provider API calls. Run logs are saved under runs/ and include evidence, replay, verdict, revision state, errors, and budget usage. The true fixture can return TESTS_PASSED; the false fixture can return REFUTED only after a mismatch reproduces on replay.

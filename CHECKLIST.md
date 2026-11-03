@@ -55,3 +55,14 @@
 - [x] Check sort idempotence and record that it misses duplicate removal.
 - [x] Replay all saved Day 21 counterexamples.
 - [x] Record remaining oracle uncertainty and reviewer availability.
+
+## Day 27 — Connect the end-to-end pilot
+
+- [x] Add a CLI command that accepts a JSON problem file.
+- [x] Validate the complete problem schema and all supplied test inputs before evaluation.
+- [x] Keep plan suggestions labeled as suggestions and target/oracle selection allowlisted.
+- [x] Run fixed, deterministic Hypothesis, and optional offline proposal cases through the trusted harness.
+- [x] Confirm every mismatch by replay before applying the evidence-based verdict policy.
+- [x] Save verdict, evidence, revision, errors, and budget usage to JSON logs.
+- [x] Verify a true example returns TESTS_PASSED and a false example returns replay-confirmed REFUTED.
+- [x] Inject an optional proposal-stage failure and verify the error and budget log are still saved.

@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "problem_id": "p01_true_sort",
+  "claim": "The function returns every input integer in ascending order and preserves duplicates.",
+  "target": {
+    "id": "sort_correct"
+  },
+  "contract": {
+    "id": "integer-sort-preserves-multiplicity-v1",
+    "oracle_id": "sorted_integer_list_v1",
+    "input_type": "integer_list",
+    "allow_empty": true
+  },
+  "plan_suggestions": [
+    "Try empty and singleton lists as boundary cases.",
+    "Try duplicate and negative values to exercise ordering and multiplicity."
+  ],
+  "fixed_cases": [
+    [],
+    [7],
+    [3, -1, 3, 0],
+    [4, 4]
+  ],
+  "proposal_fixtures": [
+    {
+      "input": [5, 2, 5],
+      "rationale": "A repeated value checks that sorting preserves multiplicity."
+    },
+    {
+      "input": [-8, 0, 6],
+      "rationale": "Mixed signs check ascending order across zero."
+    }
+  ],
+  "hypothesis": {
+    "seed": 2701,
+    "max_examples": 25,
+    "min_size": 0,
+    "max_size": 6,
+    "min_value": -10,
+    "max_value": 10
+  },
+  "budget": {
+    "max_rounds": 1,
+    "max_wall_time_seconds": 60,
+    "max_model_calls": 0,
+    "max_tokens": 0,
+    "max_cost_usd": 0
+  }
+}
