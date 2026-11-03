@@ -12,7 +12,7 @@ class LLMNotConfiguredError(RuntimeError):
 
 
 class LLMClient(Protocol):
-    """Narrow interface for a future provider adapter; responses require schema validation."""
+    """Narrow provider interface; callers must validate text with `schemas.parse_model_output`."""
 
     def complete(self, prompt: str, *, model_id: str) -> str:
         """Return an untrusted provider response as text."""

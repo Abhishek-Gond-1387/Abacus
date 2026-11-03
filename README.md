@@ -8,6 +8,14 @@ This repository contains the Day 1–3 setup and Python practice exercises, plus
 
 The importable package stays at `abacus/` in the repository root so `python -m abacus` continues to work from this directory without an installation step. Schemas and inert problem-file validation live in `abacus/schemas.py`; checked-in target/oracle allowlists live in `abacus/targets.py`; deterministic case generation and trusted evidence collection live in `abacus/experiment.py`; provider interfaces and offline proposal fixtures live in `abacus/llm.py`; prompt/fixture identifiers live in `abacus/prompts.py`; isolation stays in `abacus/sandbox.py`; and outcome policy lives in `abacus/verifier.py`. The CLI coordinates these parts. The `practice.decision` module remains as a compatibility import for examples and tests that use its old path.
 
+## Day 40 model-output validation
+
+`abacus.schemas.parse_hypothesis_output`, `parse_plan_output`, and `parse_candidate_proposals` validate provider text as strict JSON and return immutable typed records. Responses are limited to 16 KiB, text fields to 1,000 characters, plans to 20 suggestions, proposals to 20 inputs, and each input to 100 signed 64-bit integers. A plain JSON response or a single complete `json` code fence is accepted. Refusals, empty/truncated/invalid JSON, extra text, unknown fields, wrong types, and oversized responses have distinct error categories. Raw provider text is not retained or included in validation errors. No hosted client is configured; parsing is ready for a future adapter.
+
+Run the fixture checks with:
+
+    .\.venv\Scripts\python.exe -m unittest practice.test_day40_model_outputs
+
 ## Run the exercises
 
 From this directory:

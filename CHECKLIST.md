@@ -176,3 +176,12 @@
 - [x] Check imports and Git history before moving the verdict policy; retain `practice.decision` as a compatibility re-export.
 - [x] Add module docstrings describing responsibilities and relevant trust boundaries.
 - [x] Run both seed problem examples and focused tests after the module move.
+
+## Day 40 — Validate structured model outputs
+
+- [x] Define strict response records for hypothesis statements, plan suggestions, and candidate input proposals.
+- [x] Require exact field names/types and bound response bytes, text size, candidate counts, list lengths, and integer range.
+- [x] Parse JSON without greedy regular expressions; accept only plain JSON or one complete JSON code fence.
+- [x] Distinguish provider refusal, empty response, truncation, invalid JSON, extra text, unknown fields, wrong types, and oversized output.
+- [x] Avoid retaining raw provider text or copying untrusted text into validation errors.
+- [x] Add fixture coverage for all parser outcomes and limits; no provider API is configured or called.
