@@ -7,6 +7,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+from abacus.prompts import PROMPT_TEMPLATE_VERSIONS
+
 from .outcomes import FinalOutcome, OutcomeReason, RunOutcome
 from .run_records import RUN_RECORD_SCHEMA_VERSION, load_run_record, save_run_record
 
@@ -79,11 +81,7 @@ def _base_record(run_id: str, *, partial: bool) -> dict[str, Any]:
             "provider_api_called": False,
             "provider_identity_status": "not_applicable_no_provider_call",
             "proposal_step": {"status": "not_configured", "provider_api_called": False, "count": 0},
-            "prompt_template_versions": {
-                "plan_suggestions": "offline-suggestions-v1",
-                "proposal_fixtures": "offline-proposals-v1",
-                "claim_revision": "claim-revision-v1",
-            },
+            "prompt_template_versions": dict(PROMPT_TEMPLATE_VERSIONS),
             "plan_suggestions": [
                 {"text": "Try repeated integers.", "source": "offline_fixture", "applied_as_fact": False}
             ],

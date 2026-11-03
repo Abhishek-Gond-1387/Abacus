@@ -1,1 +1,1 @@
-"""End-to-end command-line pilot for the Abacus evidence pipeline."""
+"""Abacus package: schemas, trusted experiments, verification, CLI, LLM boundary, and sandbox."""

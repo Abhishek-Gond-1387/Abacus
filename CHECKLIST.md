@@ -167,3 +167,12 @@
 - [x] Label trusted benchmark targets and untrusted sandbox requests in execution records; omit source text and host file paths.
 - [x] Add tests for missing runtime, blocked verification, CLI opt-in, nonzero container startup, cleanup, and no host fallback.
 - [ ] Run an actual candidate only after Day 37 image and isolation probes pass.
+
+## Day 39 — Organize the project into clear modules
+
+- [x] Put validated inert problem data, trusted target/oracle allowlists, experiment orchestration, provider boundary, prompt IDs, verifier policy, and sandbox boundary in separate responsibility-focused modules.
+- [x] Keep `abacus/cli.py` as the command and run orchestrator; retain the working `python -m abacus` package layout at repository root.
+- [x] Centralize prompt/fixture version identifiers and record them in normal and emergency run records.
+- [x] Check imports and Git history before moving the verdict policy; retain `practice.decision` as a compatibility re-export.
+- [x] Add module docstrings describing responsibilities and relevant trust boundaries.
+- [x] Run both seed problem examples and focused tests after the module move.

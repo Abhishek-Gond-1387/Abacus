@@ -2,7 +2,11 @@
 
 Abacus is a research prototype for checking precise claims about Python functions. It will search for candidate counterexamples and use trusted checks to decide what the evidence supports. A passing finite test run is not a proof of correctness.
 
-This repository contains the Day 1–3 setup and Python practice exercises, plus Day 21–38 review work from the 56-day build plan. The comparison review uses Hypothesis for bounded case generation.
+This repository contains the Day 1–3 setup and Python practice exercises, plus Day 21–39 review work from the 56-day build plan. The comparison review uses Hypothesis for bounded case generation.
+
+## Day 39 module boundaries
+
+The importable package stays at `abacus/` in the repository root so `python -m abacus` continues to work from this directory without an installation step. Schemas and inert problem-file validation live in `abacus/schemas.py`; checked-in target/oracle allowlists live in `abacus/targets.py`; deterministic case generation and trusted evidence collection live in `abacus/experiment.py`; provider interfaces and offline proposal fixtures live in `abacus/llm.py`; prompt/fixture identifiers live in `abacus/prompts.py`; isolation stays in `abacus/sandbox.py`; and outcome policy lives in `abacus/verifier.py`. The CLI coordinates these parts. The `practice.decision` module remains as a compatibility import for examples and tests that use its old path.
 
 ## Run the exercises
 
@@ -39,7 +43,7 @@ Each run outcome carries a machine-readable reason, such as confirmed_counterexa
 
 ## Day 23 decision policy
 
-The pure decide function in practice/decision.py selects a run outcome from normalized evidence and a claim contract. It checks contract and oracle identifiers, replay confirmation for counterexamples, completion counts, and failure status. Extra LLM wording in a record is ignored. It never calls a model, target function, or oracle.
+The pure `decide` function in `abacus/verifier.py` selects a run outcome from normalized evidence and a claim contract. It checks contract and oracle identifiers, replay confirmation for counterexamples, completion counts, and failure status. Extra LLM wording in a record is ignored. It never calls a model, target function, or oracle. `practice/decision.py` re-exports it for compatibility.
 
 A completed evidence record includes test_id, method, contract_id, status, contract_valid, oracle_id, input, actual, and expected. A mismatching output needs replay_confirmed set to true before it can refute a claim. One confirmed counterexample is sufficient even if other scheduled tests did not finish; otherwise incomplete or uncertain runs remain unresolved.
 
