@@ -17,3 +17,13 @@
 - [x] Update the README glossary and Day 21 report labels.
 - [x] Search old PASS, FAIL, and SURVIVED labels and clarify case-level labels.
 - [x] Verify a finite passing run records TESTS_PASSED and the finite-test helper cannot return PROVEN.
+
+## Day 23 — Implement the evidence-based decision policy
+
+- [x] Add a pure decide(evidence_records, claim_contract) function with no model calls.
+- [x] Require contract-valid evidence, the configured usable oracle, and successful replay before REFUTED.
+- [x] Return TESTS_PASSED only after every scheduled test and required method completes.
+- [x] Return UNRESOLVED for timeout, invalid/conflicting, incomplete, or oracle-less evidence.
+- [x] Return ERROR with a category for API and internal failures.
+- [x] Keep PROVEN unavailable to the finite-evidence decision path.
+- [x] Add fixtures for every outcome, contradictions, insufficient evidence, and ignored LLM wording.

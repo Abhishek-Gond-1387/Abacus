@@ -41,16 +41,28 @@ A case-level CASE_PASSED result means only that one input satisfied the property
 - UNRESOLVED
 - ERROR
 
-Outcome reasons include confirmed_counterexample, no_counterexample_found, budget_exhausted, conflicting_evidence, and external_error.
+Outcome reasons:
+
+- confirmed_counterexample
+- no_counterexample_found
+- budget_exhausted
+- conflicting_evidence
+- invalid_evidence
+- incomplete_evidence
+- no_usable_oracle
+- timeout
+- external_error
+- internal_error
+- formal_proof_confirmed
 
 | Seed problem | Source | Cases generated | Valid | Confirmed counterexamples | Runtime (ms) | Failures |
 |---|---|---:|---:|---:|---:|---|
-| sort-preserves-duplicates | Fixed edge cases | 5 | 5 | 1 | 0.082 | None |
-| sort-preserves-duplicates | Hypothesis | 36 | 36 | 18 | 224.700 | None |
-| sort-preserves-duplicates | Offline LLM proposals | 2 | 1 | 0 | 0.016 | OUT_OF_CONTRACT: 1 |
-| largest-negative-values | Fixed edge cases | 4 | 4 | 2 | 0.023 | None |
-| largest-negative-values | Hypothesis | 15 | 15 | 2 | 41.511 | None |
-| largest-negative-values | Offline LLM proposals | 2 | 1 | 0 | 0.021 | OUT_OF_CONTRACT: 1 |
+| sort-preserves-duplicates | Fixed edge cases | 5 | 5 | 1 | 0.218 | None |
+| sort-preserves-duplicates | Hypothesis | 36 | 36 | 18 | 174.460 | None |
+| sort-preserves-duplicates | Offline LLM proposals | 2 | 1 | 0 | 0.013 | OUT_OF_CONTRACT: 1 |
+| largest-negative-values | Fixed edge cases | 4 | 4 | 2 | 0.019 | None |
+| largest-negative-values | Hypothesis | 15 | 15 | 2 | 21.741 | None |
+| largest-negative-values | Offline LLM proposals | 2 | 1 | 0 | 0.014 | OUT_OF_CONTRACT: 1 |
 
 ## Findings
 

@@ -312,23 +312,10 @@ def render_report(rows: list[dict[str, Any]]) -> str:
     )
     for outcome in FinalOutcome:
         lines.append("- " + outcome.value)
-    lines.extend(
-        [
-            "",
-            "Outcome reasons include "
-            + OutcomeReason.CONFIRMED_COUNTEREXAMPLE.value
-            + ", "
-            + OutcomeReason.NO_COUNTEREXAMPLE_FOUND.value
-            + ", "
-            + OutcomeReason.BUDGET_EXHAUSTED.value
-            + ", "
-            + OutcomeReason.CONFLICTING_EVIDENCE.value
-            + ", and "
-            + OutcomeReason.EXTERNAL_ERROR.value
-            + ".",
-            "",
-        ]
-    )
+    lines.extend(["", "Outcome reasons:", ""])
+    for reason in OutcomeReason:
+        lines.append("- " + reason.value)
+    lines.append("")
     lines.extend(
         [
             "| Seed problem | Source | Cases generated | Valid | Confirmed counterexamples | Runtime (ms) | Failures |",

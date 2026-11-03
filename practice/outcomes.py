@@ -25,6 +25,7 @@ class OutcomeReason(str, Enum):
     BUDGET_EXHAUSTED = "budget_exhausted"
     CONFLICTING_EVIDENCE = "conflicting_evidence"
     INVALID_EVIDENCE = "invalid_evidence"
+    INCOMPLETE_EVIDENCE = "incomplete_evidence"
     NO_USABLE_ORACLE = "no_usable_oracle"
     TIMEOUT = "timeout"
     EXTERNAL_ERROR = "external_error"
@@ -71,6 +72,7 @@ class RunOutcome:
                 OutcomeReason.BUDGET_EXHAUSTED,
                 OutcomeReason.CONFLICTING_EVIDENCE,
                 OutcomeReason.INVALID_EVIDENCE,
+                OutcomeReason.INCOMPLETE_EVIDENCE,
                 OutcomeReason.NO_USABLE_ORACLE,
                 OutcomeReason.TIMEOUT,
             }
