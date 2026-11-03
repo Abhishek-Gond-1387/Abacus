@@ -214,7 +214,7 @@
 - [x] Use read-only repository permissions and pin actions to verified commit SHAs.
 - [x] Document workflow triggers, versions, and the local equivalent in `README.md`.
 - [x] Review the workflow structure and pass `git diff --check`; record validation limits in `NOTES.md`.
-- [ ] Confirm the first GitHub-hosted workflow run is green after the commit is pushed.
+- [x] Confirm the first GitHub-hosted workflow run is green after the commit is pushed.
 
 ## Day 44 — Smoke-test the CLI in CI
 
@@ -232,7 +232,7 @@
 - [x] Keep the same test command, dependency setup, read-only permissions, and API-key-free configuration.
 - [x] Document the four platform/version combinations in `README.md` and `NOTES.md`.
 - [x] Review the workflow change and pass `git diff --check`.
-- [ ] Confirm all four GitHub-hosted jobs pass after the workflow is pushed.
+- [x] Confirm all four GitHub-hosted jobs pass after the workflow is pushed.
 
 ## Day 46 — Keep CI actions and Python dependencies current
 
@@ -250,4 +250,11 @@
 - [x] Run strict YAML linting for the Actions workflow and Dependabot config in CI.
 - [x] Document the local lint command in `README.md`.
 - [x] Run the strict linter locally and record its result in `NOTES.md`.
-- [ ] Confirm the new lint step passes on all GitHub-hosted matrix jobs after push.
+- [ ] Confirm the new lint step passes on all GitHub-hosted matrix jobs after the Day 48 line-ending fix is pushed.
+
+## Day 48 — Keep YAML line endings consistent on Windows
+
+- [x] Review the pushed Day 47 GitHub Actions matrix and identify the Windows-only YAML lint failure.
+- [x] Pin tracked `.yml` files to LF with `.gitattributes` so Windows checkouts satisfy yamllint.
+- [x] Record the GitHub Actions findings and fix in `NOTES.md`.
+- [ ] Push the fix and confirm the latest Linux and Windows matrix jobs pass.
