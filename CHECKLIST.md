@@ -27,3 +27,12 @@
 - [x] Return ERROR with a category for API and internal failures.
 - [x] Keep PROVEN unavailable to the finite-evidence decision path.
 - [x] Add fixtures for every outcome, contradictions, insufficient evidence, and ignored LLM wording.
+
+## Day 24 — Store revisions without rewriting history
+
+- [x] Store original_claim, original_label, revised_claim, revision_reason, and revision_relation separately.
+- [x] Restrict revision_relation to clarifies, narrows, changes_meaning, or none.
+- [x] Gate prompts on a confirmed counterexample or recorded ambiguity; ask for exact changes.
+- [x] Keep the original benchmark label and scored claim immutable.
+- [x] Render original and revised claims and mark the original as the evaluation target.
+- [x] Exercise the all-lists to non-empty-lists narrowing example.

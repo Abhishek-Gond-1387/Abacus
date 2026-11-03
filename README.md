@@ -2,7 +2,7 @@
 
 Abacus is a research prototype for checking precise claims about Python functions. It will search for candidate counterexamples and use trusted checks to decide what the evidence supports. A passing finite test run is not a proof of correctness.
 
-This repository contains the Day 1–3 setup and Python practice exercises, plus Day 21–23 review work from the 56-day build plan. The comparison review uses Hypothesis for bounded case generation.
+This repository contains the Day 1–3 setup and Python practice exercises, plus Day 21–24 review work from the 56-day build plan. The comparison review uses Hypothesis for bounded case generation.
 
 ## Run the exercises
 
@@ -46,3 +46,14 @@ A completed evidence record includes test_id, method, contract_id, status, contr
 Run the policy fixtures with the standard library:
 
     .\.venv\Scripts\python.exe -m unittest practice.test_decision
+
+## Day 24 claim revisions
+
+Revision records live in practice/revisions.py. A prompt requires a confirmed REFUTED outcome or recorded ambiguity. The record keeps original_claim and original_label immutable, stores the proposal and its relation separately, and marks the original claim as the one still scored.
+
+Generate the offline example view and run its fixtures:
+
+    .\.venv\Scripts\python.exe practice\day24_revision_example.py
+    .\.venv\Scripts\python.exe -m unittest practice.test_revisions
+
+The example narrows an all-integer-lists claim to non-empty integer lists after an empty-list counterexample. It does not call a provider API. The view is saved to practice/day24_revision_view.md.

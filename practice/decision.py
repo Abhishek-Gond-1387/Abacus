@@ -362,6 +362,7 @@ def decide(
                 "actual": record.actual,
                 "expected": record.expected,
                 "test_id": record.test_id,
+                "replay_confirmed": True,
             },
         )
 
