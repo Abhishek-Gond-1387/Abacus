@@ -463,7 +463,7 @@ Use `abacus.llm.complete_structured_output(client, output_kind, prompt, model_id
 Preview the exact bounded prompt and template version without loading provider credentials or sending a network request:
 
 ```powershell
-.\.venv\Scripts\python.exe -m abacus prompt-preview problems\sort-ascending-true.json --kind candidate_proposals
+.\.venv\Scripts\python.exe -m abacus prompt-preview problems\p01_true_sort.json --kind candidate_proposals
 ```
 
 Use `--kind hypothesis`, `--kind plan`, or `--kind candidate_proposals`. The JSON result says `provider_api_called: false`; inspect the prompt before any separate explicit provider call. The normal `run` command remains offline.

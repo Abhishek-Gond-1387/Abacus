@@ -299,5 +299,7 @@
 - [x] Include prompt version and UTF-8 byte count while explicitly reporting that no provider call occurred.
 - [x] Keep credentials unloaded and the normal `run` path offline.
 - [x] Document the PowerShell command and available prompt kinds.
+- [x] Verify the documented command with the current `p01_true_sort.json` schema.
 - [x] Compile changed Python code and pass `git diff --check`.
-- [ ] Push the Day 52 commit and confirm all four hosted CI jobs pass.
+- [x] Confirm the Day 52 commit is present on remote-tracking `origin/main`.
+- [ ] Confirm all four hosted CI jobs pass.
