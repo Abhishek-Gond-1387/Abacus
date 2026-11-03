@@ -14,8 +14,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable
 
-from hypothesis import HealthCheck, given, settings, strategies as st
+from hypothesis import HealthCheck, given, seed, settings, strategies as st
 from hypothesis import __version__ as hypothesis_version
+
+if __package__:
+    from .outcomes import FinalOutcome, OutcomeReason
+else:
+    from outcomes import FinalOutcome, OutcomeReason
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -23,6 +28,7 @@ REPORT_PATH = PROJECT_ROOT / "practice" / "day21_report.md"
 MAX_EXAMPLES = 100
 MAX_LIST_SIZE = 8
 INTEGER_BOUND = 20
+HYPOTHESIS_SEED = 2103
 
 
 @dataclass(frozen=True)
@@ -156,7 +162,7 @@ def check_case(problem: SeedProblem, value: Any) -> dict[str, Any]:
             "message": "The target disagreed with the trusted reference.",
         }
     return {
-        "category": "PASS",
+        "category": "CASE_PASSED",
         "valid": True,
         "actual": actual,
         "expected": expected,
@@ -176,11 +182,11 @@ def run_hypothesis(problem: SeedProblem) -> tuple[list[Any], str | None]:
     """Explore with bounded deterministic Hypothesis settings and retain cases."""
     generated: list[Any] = []
 
+    @seed(HYPOTHESIS_SEED)
     @given(problem.hypothesis_strategy())
     @settings(
         max_examples=MAX_EXAMPLES,
         deadline=None,
-        derandomize=True,
         database=None,
         suppress_health_check=(HealthCheck.too_slow,),
     )
@@ -189,7 +195,7 @@ def run_hypothesis(problem: SeedProblem) -> tuple[list[Any], str | None]:
         result = check_case(problem, value)
         if result["category"] == "PROPERTY_VIOLATION":
             raise AssertionError("Trusted property violation found.")
-        if result["category"] not in {"PASS", "PROPERTY_VIOLATION"}:
+        if result["category"] not in {"CASE_PASSED", "PROPERTY_VIOLATION"}:
             raise RuntimeError(f"Hypothesis generated an unusable input: {result['category']}")
 
     try:
@@ -225,14 +231,14 @@ def evaluate_source(
     failure_categories = Counter(
         outcome["category"]
         for outcome in outcomes
-        if outcome["category"] not in {"PASS", "PROPERTY_VIOLATION"}
+        if outcome["category"] not in {"CASE_PASSED", "PROPERTY_VIOLATION"}
     )
     if generation_error:
         failure_categories["INTERNAL_ERROR"] += 1
 
     findings_by_key: dict[tuple[str, str], dict[str, Any]] = {}
     for value, outcome in zip(proposals, outcomes):
-        if outcome["category"] == "PASS":
+        if outcome["category"] == "CASE_PASSED":
             continue
         key = (case_key(value), outcome["category"])
         findings_by_key.setdefault(key, {"input": value, **outcome})
@@ -257,13 +263,13 @@ def render_report(rows: list[dict[str, Any]]) -> str:
         "This is a bounded review of two intentionally faulty, hand-written targets. "
         "Each source uses the same input contract and trusted reference for a given problem. "
         "A confirmed counterexample is an in-contract input whose target output differs "
-        "from that reference.",
+        "from that reference. This report records case-level evidence, not final run verdicts.",
         "",
         f"- Python: {platform.python_version()}",
         f"- Hypothesis: {hypothesis_version}",
-        f"- Hypothesis setting: up to {MAX_EXAMPLES} examples; integer values from "
-        f"-{INTEGER_BOUND} through {INTEGER_BOUND}; lists up to {MAX_LIST_SIZE} items; "
-        "deterministic mode.",
+        f"- Hypothesis setting: seed {HYPOTHESIS_SEED}; up to {MAX_EXAMPLES} examples; "
+        f"integer values from -{INTEGER_BOUND} through {INTEGER_BOUND}; "
+        f"lists up to {MAX_LIST_SIZE} items.",
         "- LLM proposals: offline proposal fixtures drafted for this review; no provider API "
         "was called.",
         "",
@@ -295,6 +301,34 @@ def render_report(rows: list[dict[str, Any]]) -> str:
                 f"{proposal.rationale}"
             )
         lines.append("")
+    lines.extend(
+        [
+            "## Final outcome vocabulary",
+            "",
+            "A case-level CASE_PASSED result means only that one input satisfied the property. "
+            "It is not the run-level TESTS_PASSED verdict.",
+            "",
+        ]
+    )
+    for outcome in FinalOutcome:
+        lines.append("- " + outcome.value)
+    lines.extend(
+        [
+            "",
+            "Outcome reasons include "
+            + OutcomeReason.CONFIRMED_COUNTEREXAMPLE.value
+            + ", "
+            + OutcomeReason.NO_COUNTEREXAMPLE_FOUND.value
+            + ", "
+            + OutcomeReason.BUDGET_EXHAUSTED.value
+            + ", "
+            + OutcomeReason.CONFLICTING_EVIDENCE.value
+            + ", and "
+            + OutcomeReason.EXTERNAL_ERROR.value
+            + ".",
+            "",
+        ]
+    )
     lines.extend(
         [
             "| Seed problem | Source | Cases generated | Valid | Confirmed counterexamples | Runtime (ms) | Failures |",

@@ -1,10 +1,10 @@
 # Day 21 — Input source comparison
 
-This is a bounded review of two intentionally faulty, hand-written targets. Each source uses the same input contract and trusted reference for a given problem. A confirmed counterexample is an in-contract input whose target output differs from that reference.
+This is a bounded review of two intentionally faulty, hand-written targets. Each source uses the same input contract and trusted reference for a given problem. A confirmed counterexample is an in-contract input whose target output differs from that reference. This report records case-level evidence, not final run verdicts.
 
 - Python: 3.15.2
 - Hypothesis: 6.170.14
-- Hypothesis setting: up to 100 examples; integer values from -20 through 20; lists up to 8 items; deterministic mode.
+- Hypothesis setting: seed 2103; up to 100 examples; integer values from -20 through 20; lists up to 8 items.
 - LLM proposals: offline proposal fixtures drafted for this review; no provider API was called.
 
 ## Seed contracts
@@ -31,14 +31,26 @@ This is a bounded review of two intentionally faulty, hand-written targets. Each
 - `[2, 1, 3]` — Try a small positive list.
 - `[]` — Empty list is outside the non-empty contract.
 
+## Final outcome vocabulary
+
+A case-level CASE_PASSED result means only that one input satisfied the property. It is not the run-level TESTS_PASSED verdict.
+
+- REFUTED
+- TESTS_PASSED
+- PROVEN
+- UNRESOLVED
+- ERROR
+
+Outcome reasons include confirmed_counterexample, no_counterexample_found, budget_exhausted, conflicting_evidence, and external_error.
+
 | Seed problem | Source | Cases generated | Valid | Confirmed counterexamples | Runtime (ms) | Failures |
 |---|---|---:|---:|---:|---:|---|
-| sort-preserves-duplicates | Fixed edge cases | 5 | 5 | 1 | 0.094 | None |
-| sort-preserves-duplicates | Hypothesis | 35 | 35 | 12 | 279.686 | None |
-| sort-preserves-duplicates | Offline LLM proposals | 2 | 1 | 0 | 0.015 | OUT_OF_CONTRACT: 1 |
-| largest-negative-values | Fixed edge cases | 4 | 4 | 2 | 0.021 | None |
-| largest-negative-values | Hypothesis | 16 | 16 | 3 | 22.588 | None |
-| largest-negative-values | Offline LLM proposals | 2 | 1 | 0 | 0.012 | OUT_OF_CONTRACT: 1 |
+| sort-preserves-duplicates | Fixed edge cases | 5 | 5 | 1 | 0.082 | None |
+| sort-preserves-duplicates | Hypothesis | 36 | 36 | 18 | 224.700 | None |
+| sort-preserves-duplicates | Offline LLM proposals | 2 | 1 | 0 | 0.016 | OUT_OF_CONTRACT: 1 |
+| largest-negative-values | Fixed edge cases | 4 | 4 | 2 | 0.023 | None |
+| largest-negative-values | Hypothesis | 15 | 15 | 2 | 41.511 | None |
+| largest-negative-values | Offline LLM proposals | 2 | 1 | 0 | 0.021 | OUT_OF_CONTRACT: 1 |
 
 ## Findings
 
@@ -48,17 +60,23 @@ This is a bounded review of two intentionally faulty, hand-written targets. Each
 
 ### sort-preserves-duplicates — Hypothesis
 
-- input `[-2, -2]` → PROPERTY_VIOLATION (target returned `[-2]`, reference expected `[-2, -2]`)
-- input `[16, -1, 13, 16, 20, 15]` → PROPERTY_VIOLATION (target returned `[-1, 13, 15, 16, 20]`, reference expected `[-1, 13, 15, 16, 16, 20]`)
-- input `[16, -1, 13, 16, 20, 16]` → PROPERTY_VIOLATION (target returned `[-1, 13, 16, 20]`, reference expected `[-1, 13, 16, 16, 16, 20]`)
-- input `[16, 16, 13, 16, 20, 16]` → PROPERTY_VIOLATION (target returned `[13, 16, 20]`, reference expected `[13, 16, 16, 16, 16, 20]`)
-- input `[16, 16, 16, 16, 20, 16]` → PROPERTY_VIOLATION (target returned `[16, 20]`, reference expected `[16, 16, 16, 16, 16, 20]`)
-- input `[16, 16]` → PROPERTY_VIOLATION (target returned `[16]`, reference expected `[16, 16]`)
-- input `[15, 4, 15, -3]` → PROPERTY_VIOLATION (target returned `[-3, 4, 15]`, reference expected `[-3, 4, 15, 15]`)
-- input `[15, 4, 15, 15]` → PROPERTY_VIOLATION (target returned `[4, 15]`, reference expected `[4, 15, 15, 15]`)
-- input `[15, 15, 15, 15]` → PROPERTY_VIOLATION (target returned `[15]`, reference expected `[15, 15, 15, 15]`)
-- input `[16, -17, -17, -1, 6, -4, -19, -9]` → PROPERTY_VIOLATION (target returned `[-19, -17, -9, -4, -1, 6, 16]`, reference expected `[-19, -17, -17, -9, -4, -1, 6, 16]`)
-- input `[2, 2]` → PROPERTY_VIOLATION (target returned `[2]`, reference expected `[2, 2]`)
+- input `[-3, -13, -3, -19]` → PROPERTY_VIOLATION (target returned `[-19, -13, -3]`, reference expected `[-19, -13, -3, -3]`)
+- input `[-3, -13, -3, -3]` → PROPERTY_VIOLATION (target returned `[-13, -3]`, reference expected `[-13, -3, -3, -3]`)
+- input `[-3, -3, -3, -3]` → PROPERTY_VIOLATION (target returned `[-3]`, reference expected `[-3, -3, -3, -3]`)
+- input `[-11, -9, 6, -15, 18, 19, -11, -7]` → PROPERTY_VIOLATION (target returned `[-15, -11, -9, -7, 6, 18, 19]`, reference expected `[-15, -11, -11, -9, -7, 6, 18, 19]`)
+- input `[-11, -9, 6, -11, 18, 19, -11, -7]` → PROPERTY_VIOLATION (target returned `[-11, -9, -7, 6, 18, 19]`, reference expected `[-11, -11, -11, -9, -7, 6, 18, 19]`)
+- input `[-11, -9, 6, -11, 18, -11, -11, -7]` → PROPERTY_VIOLATION (target returned `[-11, -9, -7, 6, 18]`, reference expected `[-11, -11, -11, -11, -9, -7, 6, 18]`)
+- input `[-11, -9, 6, -11, -11, -11, -11, -7]` → PROPERTY_VIOLATION (target returned `[-11, -9, -7, 6]`, reference expected `[-11, -11, -11, -11, -11, -9, -7, 6]`)
+- input `[-11, -9, 6, -11, -11, -11, 6, -7]` → PROPERTY_VIOLATION (target returned `[-11, -9, -7, 6]`, reference expected `[-11, -11, -11, -11, -9, -7, 6, 6]`)
+- input `[-11, -9, -11, -11, -11, -11, 6, -7]` → PROPERTY_VIOLATION (target returned `[-11, -9, -7, 6]`, reference expected `[-11, -11, -11, -11, -11, -9, -7, 6]`)
+- input `[4, -18, 4]` → PROPERTY_VIOLATION (target returned `[-18, 4]`, reference expected `[-18, 4, 4]`)
+- input `[-18, -18, 4]` → PROPERTY_VIOLATION (target returned `[-18, 4]`, reference expected `[-18, -18, 4]`)
+- input `[-18, 4, 4]` → PROPERTY_VIOLATION (target returned `[-18, 4]`, reference expected `[-18, 4, 4]`)
+- input `[4, 4, 4]` → PROPERTY_VIOLATION (target returned `[4]`, reference expected `[4, 4, 4]`)
+- input `[5, 12, -16, 12, -12, 9, -13, -11]` → PROPERTY_VIOLATION (target returned `[-16, -13, -12, -11, 5, 9, 12]`, reference expected `[-16, -13, -12, -11, 5, 9, 12, 12]`)
+- input `[5, 12, -12, 12, -12, 9, -13, -11]` → PROPERTY_VIOLATION (target returned `[-13, -12, -11, 5, 9, 12]`, reference expected `[-13, -12, -12, -11, 5, 9, 12, 12]`)
+- input `[4, 4, 0]` → PROPERTY_VIOLATION (target returned `[0, 4]`, reference expected `[0, 4, 4]`)
+- input `[4, 4]` → PROPERTY_VIOLATION (target returned `[4]`, reference expected `[4, 4]`)
 - input `[0, 0]` → PROPERTY_VIOLATION (target returned `[0]`, reference expected `[0, 0]`)
 
 ### sort-preserves-duplicates — Offline LLM proposals
@@ -72,8 +90,7 @@ This is a bounded review of two intentionally faulty, hand-written targets. Each
 
 ### largest-negative-values — Hypothesis
 
-- input `[-18]` → PROPERTY_VIOLATION (target returned `0`, reference expected `-18`)
-- input `[-16]` → PROPERTY_VIOLATION (target returned `0`, reference expected `-16`)
+- input `[-15]` → PROPERTY_VIOLATION (target returned `0`, reference expected `-15`)
 - input `[-1]` → PROPERTY_VIOLATION (target returned `0`, reference expected `-1`)
 
 ### largest-negative-values — Offline LLM proposals

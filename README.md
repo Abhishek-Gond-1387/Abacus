@@ -2,7 +2,7 @@
 
 Abacus is a research prototype for checking precise claims about Python functions. It will search for candidate counterexamples and use trusted checks to decide what the evidence supports. A passing finite test run is not a proof of correctness.
 
-This repository contains the Day 1–3 setup and Python practice exercises, plus a Day 21 comparison review from the 56-day build plan. The review uses Hypothesis for bounded case generation.
+This repository contains the Day 1–3 setup and Python practice exercises, plus Day 21 and Day 22 review work from the 56-day build plan. The comparison review uses Hypothesis for bounded case generation.
 
 ## Run the exercises
 
@@ -24,3 +24,15 @@ Install the development dependency and run the comparison:
     .\.venv\Scripts\python.exe practice\day21_review.py
 
 The review compares fixed edge cases, Hypothesis cases, and offline LLM-style proposal fixtures on two deliberately faulty seed functions. All sources share each problem's input contract and trusted reference. The script writes the results to practice/day21_report.md. The proposal fixtures do not call a provider API, and the generated test cases are checked as evidence rather than treated as a proof.
+
+## Verdict glossary
+
+The shared run-level vocabulary and record are in practice/outcomes.py:
+
+- REFUTED: a contract-valid counterexample has been confirmed.
+- TESTS_PASSED: the scheduled finite tests passed; this does not prove correctness.
+- PROVEN: reserved for a sound formal checker and proof evidence. No current test-only path can emit it.
+- UNRESOLVED: evidence or budget is insufficient or conflicting.
+- ERROR: an external or internal error prevented evaluation.
+
+Each run outcome carries a machine-readable reason, such as confirmed_counterexample, no_counterexample_found, budget_exhausted, conflicting_evidence, or external_error. CASE_PASSED is a case-level label in the Day 21 report; it does not mean the whole run is TESTS_PASSED. The Day 21 report is the current results view; this repository does not yet have a separate UI viewer.
