@@ -264,3 +264,9 @@ Created a detached clean worktree at Day 41 HEAD, made a new Python 3.15 virtual
 The complete runner passed on the fresh environment: 52 historical Day 1–20 tests and 102 current Day 21+ tests (154 total) in 81.14 seconds. The CLI help also loaded from the clean environment. `p01_true_sort` ran 31 checks and returned `TESTS_PASSED` (finite evidence only); `p02_false_sort` ran 31 checks and returned `REFUTED` with the `[3, -1, 3, 0]` counterexample replay confirmed. Both runs reported `provider_api_called: false`. The two older Day 8 seed records validated successfully using the historical `src/abacus/` package from `tests/` with `PYTHONPATH` pointed at `src/`; the README's old root-level command was invalid after the package split and is now corrected.
 
 `.gitignore` now explicitly excludes `.env`, `runs/`, `.venv/`, Python bytecode, Hypothesis/pytest/mypy/ruff caches, coverage output, and build artifacts.
+
+## Day 43 GitHub Actions regression workflow
+
+Added `.github/workflows/ci.yml`. It runs the unified 154-test suite on pushes and pull requests for `main`, plus manual dispatch, using Python 3.11 (the package's declared minimum) and 3.14 on Ubuntu 24.04. The workflow follows the Day 42 clean install, uses a pip cache keyed by both requirements files, has a 10-minute job timeout, grants only `contents: read`, and supplies no provider credentials. `actions/checkout` and `actions/setup-python` are pinned to verified release commit SHAs.
+
+Local checks: manually reviewed workflow triggers, matrix, action references, permissions, dependency paths, and command indentation; `git diff --check` passed. No YAML/actionlint parser is installed in this environment, so a machine YAML parse and GitHub-hosted matrix run remain pending until the workflow reaches GitHub.

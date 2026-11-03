@@ -1,6 +1,6 @@
 # Abacus
 
-Abacus is a research prototype for checking precise claims about Python functions. It searches for candidate counterexamples and uses trusted checks to decide what the evidence supports. A passing finite test run is not a proof of correctness. This repository tracks the Day 1–42 learning work.
+Abacus is a research prototype for checking precise claims about Python functions. It searches for candidate counterexamples and uses trusted checks to decide what the evidence supports. A passing finite test run is not a proof of correctness. This repository tracks the Day 1–43 learning work.
 
 The Day 1–3 exercises use Python's standard library. Day 5 and Day 6 use the OpenAI-compatible Python SDK and `python-dotenv`; Gemini is the default provider, with OpenAI available as an optional provider. Day 6 puts live requests behind a reusable helper and includes an offline stub.
 
@@ -406,3 +406,7 @@ The runner executes the Day 1–20 tests against the historical `src/abacus/` pa
 ## Day 42 fresh-install review
 
 The fresh-checkout procedure above was verified in a detached clean worktree with a new virtual environment and both requirements files. No API key or project-specific manual setup was needed for the regression suite or current CLI runs. The two current seed records were run offline; the two historical Day 8 records were validated using the documented historical-package path. `runs/`, `.env`, the virtual environment, and Python/test caches are excluded from Git.
+
+## Day 43 continuous integration
+
+`.github/workflows/ci.yml` runs the complete regression suite on pushes to `main`, pull requests targeting `main`, and manual dispatch. It checks the declared minimum Python version (3.11) and Python 3.14, installs the same runtime and test requirements as the clean-install instructions, and requires no API key or provider request. The workflow grants only `contents: read` and pins its GitHub Actions to verified commit SHAs.

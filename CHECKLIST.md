@@ -205,3 +205,13 @@
 - [x] Check whether setup relies on undocumented files, environment variables, or manual steps; document the clean setup in README.
 - [x] Explicitly ignore `.env`, run outputs, virtual environments, and Python/test tool caches.
 - [x] Record setup and verification results in `NOTES.md`.
+
+## Day 43 — Automate regression checks on GitHub
+
+- [x] Add a workflow for pushes to `main`, pull requests to `main`, and manual runs.
+- [x] Run the unified regression suite on the declared minimum Python version and a recent supported version.
+- [x] Reuse the clean-install dependency steps and keep API credentials out of CI.
+- [x] Use read-only repository permissions and pin actions to verified commit SHAs.
+- [x] Document workflow triggers, versions, and the local equivalent in `README.md`.
+- [x] Review the workflow structure and pass `git diff --check`; record validation limits in `NOTES.md`.
+- [ ] Confirm the first GitHub-hosted workflow run is green after the commit is pushed.
