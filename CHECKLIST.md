@@ -347,4 +347,18 @@
 - [x] Document which content is saved and what remains excluded.
 - [x] Compile changed Python modules and pass `git diff --check`.
 - [x] Commit the Day 56 changes locally.
-- [ ] Push the Day 56 commit to `origin` and confirm all four hosted CI jobs pass.
+- [x] Confirm the Day 56 commit is present on remote-tracking `origin/main`.
+- [ ] Confirm all four hosted CI jobs pass.
+
+## Day 57 — Inspect hosted suggestion audit artifacts
+
+- [x] Add `list-audits` summaries for valid, interrupted, and invalid files without provider access.
+- [x] Add `show-audit` lookup by record UUID and revalidate the complete strict schema before display.
+- [x] Bound file reads and reject duplicate JSON keys, non-standard constants, and oversized audit files.
+- [x] Document the local PowerShell commands and custom audit-directory option.
+- [x] Add offline regression checks for round-trip save/load/list/show, malformed files, and no-overwrite behavior.
+- [x] Run the full regression suites: 52 legacy and 109 current tests pass (161 total).
+- [x] Compile all Python source trees and pass `git diff --check`.
+- [x] Run the pre-Day 57 suite while auditing Days 1–56: all 156 existing regression tests passed; no test-revealed bug surfaced.
+- [x] Commit the Day 57 changes locally.
+- [ ] Push the Day 57 commit to `origin` and confirm all four hosted CI jobs pass.

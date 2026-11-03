@@ -43,6 +43,8 @@ from abacus.experiment import (
 from abacus.hosted_audit import (
     HOSTED_AUDIT_SCHEMA_VERSION,
     HostedAuditValidationError,
+    find_hosted_audit_record,
+    list_hosted_audit_records,
     save_hosted_audit_record,
 )
 from abacus.llm import (
@@ -66,6 +68,7 @@ from abacus.verifier import ClaimContract, decide
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 RUNS_DIR = PROJECT_ROOT / "runs"
+HOSTED_AUDITS_DIR = PROJECT_ROOT / ".abacus-audits"
 
 
 def _evidence_for_case(
@@ -1098,6 +1101,15 @@ def main(argv: list[str] | None = None) -> int:
     summary_parser = subparsers.add_parser("summarize-runs", help="summarize resource usage across saved runs")
     summary_parser.add_argument("problem_id", nargs="?", help="optionally summarize one problem")
     summary_parser.add_argument("--runs-dir", type=Path, default=RUNS_DIR)
+    audit_list_parser = subparsers.add_parser(
+        "list-audits", help="list saved hosted suggestion audit artifacts",
+    )
+    audit_list_parser.add_argument("--audits-dir", type=Path, default=HOSTED_AUDITS_DIR)
+    audit_show_parser = subparsers.add_parser(
+        "show-audit", help="show one saved hosted suggestion audit artifact by ID",
+    )
+    audit_show_parser.add_argument("audit_record_id", help="UUID from list-audits")
+    audit_show_parser.add_argument("--audits-dir", type=Path, default=HOSTED_AUDITS_DIR)
     args = parser.parse_args(argv)
 
     if args.command == "list-runs":
@@ -1140,6 +1152,16 @@ def main(argv: list[str] | None = None) -> int:
         summary["checkpoint_count"] = len(entries["checkpoints"])
         summary["invalid_file_count"] = len(entries["invalid_files"])
         print(json.dumps(summary, indent=2, ensure_ascii=False))
+        return 0
+    if args.command == "list-audits":
+        print(json.dumps(list_hosted_audit_records(args.audits_dir), indent=2, ensure_ascii=False))
+        return 0
+    if args.command == "show-audit":
+        record = find_hosted_audit_record(args.audits_dir, args.audit_record_id)
+        if record is None:
+            print(f"Audit record ID not found: {args.audit_record_id}", file=sys.stderr)
+            return 2
+        print(json.dumps(record, indent=2, ensure_ascii=False, allow_nan=False))
         return 0
     if args.command == "execute-untrusted":
         return _execute_untrusted_cli(args)

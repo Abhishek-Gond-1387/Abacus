@@ -1,6 +1,6 @@
 # Abacus
 
-Abacus is a research prototype for checking precise claims about Python functions. It searches for candidate counterexamples and uses trusted checks to decide what the evidence supports. A passing finite test run is not a proof of correctness. This repository tracks the Day 1–56 learning work.
+Abacus is a research prototype for checking precise claims about Python functions. It searches for candidate counterexamples and uses trusted checks to decide what the evidence supports. A passing finite test run is not a proof of correctness. This repository tracks the Day 1–57 learning work.
 
 The Day 1–3 exercises use Python's standard library. Day 5 and Day 6 use the OpenAI-compatible Python SDK and `python-dotenv`; Gemini is the default provider, with OpenAI available as an optional provider. Day 6 puts live requests behind a reusable helper and includes an offline stub.
 
@@ -501,3 +501,19 @@ Add `--save-audit PATH` to save a successfully parsed response, request metadata
 ```
 
 Saving is opt-in. The writer validates the structured response, creates parent directories as needed, and refuses to overwrite an existing artifact. A completion marker protects interrupted writes. The artifact contains no prompt body, raw provider response, or credentials; it is separate from normal run records and never changes a claim verdict. The `.abacus-audits/` directory is Git-ignored because suggestions and evaluation inputs may be sensitive. Provider-error responses remain on stdout with safe metadata and are not saved as successful suggestion artifacts.
+
+## Day 57 inspect hosted suggestion audit artifacts
+
+List saved artifacts and any interrupted or invalid files without a provider call:
+
+```powershell
+.\.venv\Scripts\python.exe -m abacus list-audits
+```
+
+Open one full, revalidated record by its `audit_record_id` from the list:
+
+```powershell
+.\.venv\Scripts\python.exe -m abacus show-audit YOUR_AUDIT_RECORD_UUID
+```
+
+Use `--audits-dir PATH` with either command to inspect another folder. Listing reports only summary fields plus incomplete markers and invalid-file categories; `show-audit` rechecks the strict schema, typed response, timestamps, and request metadata before printing the record. These commands are local-only and do not load credentials or contact a provider.
