@@ -2,7 +2,7 @@
 
 Abacus is a research prototype for checking precise claims about Python functions. It will search for candidate counterexamples and use trusted checks to decide what the evidence supports. A passing finite test run is not a proof of correctness.
 
-This repository contains the Day 1–3 setup and Python practice exercises, plus Day 21–35 review work from the 56-day build plan. The comparison review uses Hypothesis for bounded case generation.
+This repository contains the Day 1–3 setup and Python practice exercises, plus Day 21–36 review work from the 56-day build plan. The comparison review uses Hypothesis for bounded case generation.
 
 ## Run the exercises
 
@@ -146,3 +146,7 @@ Four validated examples are checked in under `practice/samples/day35_*.v2.json`.
 Replay and validate those samples with:
 
     .\.venv\Scripts\python.exe -m unittest practice.test_day35_audit
+
+## Day 36 sandbox design
+
+The trust-boundary decision and control checklist are in `practice/day36_sandbox_design.md`. Docker Desktop with Linux containers on WSL 2 is the conditional candidate. This machine currently has no Docker/Podman CLI and WSL is not installed, so generated-code execution remains disabled. Do not execute candidate code on the host if a container preflight or isolation control fails.

@@ -19,7 +19,7 @@
 ## Next
 
 - Day 4 completed: staged named files, reviewed the staged diff, and created the first local commit.
-- Day 35 completed; next: Day 36 — plan the sandbox boundary.
+- Day 36 completed; next: Day 37 — build and verify the isolated runner.
 
 ## Day 21 review
 
@@ -106,3 +106,9 @@ Added four validated v2 examples in `practice/samples/day35_*.v2.json`. The REFU
 Replayed the REFUTED example's saved `fixed-3` input `[3, -1, 3, 0]`. The target again returned `[-1, 0, 3]`; the oracle again returned `[-1, 0, 3, 3]`, matching the record's replay-confirmed counterexample. Scanned tracked source, ignored `runs/` JSON logs, and checked-in examples for recognized token/private-key patterns; no matches were found. The Day 31 secret-redaction regression is included in the verification suite.
 
 These examples make no provider calls, so provider/model IDs are explicitly null and prompt template versions identify the offline fixture paths. No current offline-run field was missing. Before adding hosted-model evaluation, record the redacted prompt or a stable prompt hash and the request parameters alongside the existing provider/model IDs and template versions; exact hosted responses may still vary.
+
+## Day 36 sandbox boundary
+
+Documented the trust boundary and a fail-closed Docker Desktop Linux-container design in `practice/day36_sandbox_design.md`. The proposed runtime is Docker Desktop's per-user WSL 2 backend; the container receives bounded JSON through stdin, has no network or host mounts, runs as a fixed non-root user with a read-only root filesystem, and uses capped tmpfs, CPU, memory/swap, process, file-size, wall-time, and output limits. The host validates results and removes the disposable container in every exit path. `ABACUS_UNTRUSTED_EXECUTION` stays off by default, and no host-execution fallback is permitted.
+
+Current machine check: Docker and Podman CLIs are absent and WSL reports not installed. The registry reports Windows 10 Home Single Language, 26H2, build 26300, so the supported OS build should be confirmed in Settings; RAM and virtualization also remain unverified. WSL enablement may require administrator elevation, so no runtime was installed during this design task. Day 37 must verify the host prerequisites and isolation probes before changing the default-off state. Docker Desktop's WSL backend shares a kernel; Enhanced Container Isolation is noted as an optional Business-subscription feature, not an assumed control.

@@ -139,3 +139,12 @@
 - [x] Check that offline settings, template versions, code hashes, and Git provenance explain each run; provider/model IDs are explicitly not applicable because no API was called.
 - [x] Scan tracked files, saved run files, and checked-in examples for recognized raw-key patterns; run the secret-redaction regression test.
 - [x] Record audit gaps and the prompt/request metadata needed before any future hosted-model evaluation.
+
+## Day 36 — Plan the sandbox boundary
+
+- [x] Identify model output, test snippets/values, candidate dependencies, and the host supervisor trust levels.
+- [x] Select Docker Desktop Linux containers with a WSL 2 backend as the conditional candidate; verify the current machine has no Docker/Podman CLI and WSL is not installed.
+- [x] Specify no network, non-root UID, no secrets/socket/broad host mounts, read-only root filesystem, and bounded scratch/output paths.
+- [x] Set initial CPU, memory/swap, process, file-size, output-size, and wall-time limits with corresponding verification probes.
+- [x] Define fail-closed behavior, cleanup requirements, and an execution flag that defaults off.
+- [x] Record runtime prerequisites and leave container execution disabled pending installation and Day 37 verification.
