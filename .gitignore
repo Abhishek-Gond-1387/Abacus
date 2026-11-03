@@ -7,3 +7,8 @@ dist/
 .env
 runs/
 .pip-build-temp/
+.hypothesis/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage

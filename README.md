@@ -1,6 +1,6 @@
 # Abacus
 
-Abacus is a research prototype for checking precise claims about Python functions. It searches for candidate counterexamples and uses trusted checks to decide what the evidence supports. A passing finite test run is not a proof of correctness. This repository tracks the Day 1–41 learning work.
+Abacus is a research prototype for checking precise claims about Python functions. It searches for candidate counterexamples and uses trusted checks to decide what the evidence supports. A passing finite test run is not a proof of correctness. This repository tracks the Day 1–42 learning work.
 
 The Day 1–3 exercises use Python's standard library. Day 5 and Day 6 use the OpenAI-compatible Python SDK and `python-dotenv`; Gemini is the default provider, with OpenAI available as an optional provider. Day 6 puts live requests behind a reusable helper and includes an offline stub.
 
@@ -20,6 +20,19 @@ deactivate
 The Day 3 script anchors its sample files to the project directory, so it also works when launched from another current directory.
 
 For a new setup, create the environment first with `python -m venv .venv`. Keep API keys in the ignored `.env` file; `.env.example` contains placeholders, and `.env` must never be committed.
+
+## Fresh checkout setup (Windows PowerShell)
+
+From the repository root, install runtime and development dependencies, then run the complete offline regression suite:
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+.\.venv\Scripts\python.exe practice\run_test_suites.py
+```
+
+The regression suite and seed-problem runs work without `.env`, provider credentials, or network/API calls. Create `.env` from `.env.example` only when you choose to make a live provider request. Git ignores `.env`, run outputs, virtual environments, and test/tool caches.
 
 ## Day 5: first API call
 
@@ -56,10 +69,24 @@ Configure `ABACUS_LLM_PROVIDER`, `GEMINI_MODEL`, `GEMINI_API_KEY`, and optionall
 
 The record contract and field types are documented in [`schemas/README.md`](schemas/README.md). `src/abacus/problems.py` validates JSON structure without executing candidate code or calling a model. The two hand-authored examples in `problems/` show one true and one false sorting claim. `claim` remains the canonical original wording; any later model interpretation must be stored separately.
 
-Validate both examples with:
+The historical validator is in `src/abacus/`, while the current package is at the repository root. From PowerShell, validate both older examples with:
 
 ```powershell
-.\.venv\Scripts\python.exe -m abacus.problems problems\sort-ascending-true.json problems\sort-ascending-false.json
+$previousPythonPath = $env:PYTHONPATH
+Push-Location tests
+try {
+    $env:PYTHONPATH = (Resolve-Path ..\src).Path
+    ..\.venv\Scripts\python.exe -m abacus.problems ..\problems\sort-ascending-true.json ..\problems\sort-ascending-false.json
+    if ($LASTEXITCODE -ne 0) { throw "Problem validation failed." }
+}
+finally {
+    if ($null -eq $previousPythonPath) {
+        Remove-Item Env:PYTHONPATH -ErrorAction SilentlyContinue
+    } else {
+        $env:PYTHONPATH = $previousPythonPath
+    }
+    Pop-Location
+}
 ```
 
 ## Day 9: trusted sorting property
@@ -375,3 +402,7 @@ Run all maintained test fixtures with:
     .\.venv\Scripts\python.exe practice\run_test_suites.py
 
 The runner executes the Day 1–20 tests against the historical `src/abacus/` package and the Day 21+ tests against the current root `abacus/` package in separate subprocesses. This prevents same-named package imports from masking either suite. Provider-facing checks use injected stubs and do not require an API key or make paid requests.
+
+## Day 42 fresh-install review
+
+The fresh-checkout procedure above was verified in a detached clean worktree with a new virtual environment and both requirements files. No API key or project-specific manual setup was needed for the regression suite or current CLI runs. The two current seed records were run offline; the two historical Day 8 records were validated using the documented historical-package path. `runs/`, `.env`, the virtual environment, and Python/test caches are excluded from Git.

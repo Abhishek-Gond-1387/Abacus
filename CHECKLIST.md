@@ -195,3 +195,13 @@
 - [x] Keep regression fixtures for known target, oracle, parsing, logging, and interrupted-run failures.
 - [x] Add one repeatable command that runs both historical and current test suites with the correct import paths.
 - [x] Run all suites and record the result: 154 tests passed in 63.99 seconds.
+
+## Day 42 — Verify a clean install
+
+- [x] Create a detached clean checkout and a brand-new virtual environment.
+- [x] Install runtime and development requirements using only the documented setup steps.
+- [x] Run the complete regression runner without an API key or live provider request.
+- [x] Validate/run the checked-in seed problem records offline.
+- [x] Check whether setup relies on undocumented files, environment variables, or manual steps; document the clean setup in README.
+- [x] Explicitly ignore `.env`, run outputs, virtual environments, and Python/test tool caches.
+- [x] Record setup and verification results in `NOTES.md`.
