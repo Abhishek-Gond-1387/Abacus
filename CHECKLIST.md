@@ -94,3 +94,11 @@
 - [x] Leave a parseable `.incomplete` marker with run ID and temporary-file path if save is interrupted.
 - [x] Add commands to list runs by problem and inspect a selected run ID.
 - [x] Run the same problem twice and verify both records remain distinct and valid.
+
+## Day 31 — Prevent secret leakage in logs
+
+- [x] Redact structured values under credential-like field names before saving logs.
+- [x] Scrub labeled secrets, authorization headers, common token formats, private-key blocks, and configured secret environment values from text.
+- [x] Apply the sanitizer to versioned run records and budget logs, including emergency run failures.
+- [x] Keep numeric usage counters intact and recompute the dataset hash from the sanitized stored dataset.
+- [x] Document the redaction scope and hash behavior.

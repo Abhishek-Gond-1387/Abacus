@@ -22,6 +22,8 @@
 
 SHA-256 values use canonical UTF-8 JSON with sorted keys and compact separators for problem/dataset data. Target hashes cover the allowlisted function source. `run_status` describes execution completeness; `outcome.outcome` describes the evidence verdict.
 
+Before a run record is written, credential-like fields and recognizable secrets in text are redacted. Budget logs use the same text/field sanitizer. The stored `dataset_sha256` is recalculated from the redacted dataset body so validation still succeeds; `problem_spec_sha256` remains the SHA-256 fingerprint of the original problem input and does not contain its plaintext.
+
 ## Samples
 
 - `practice/samples/run_complete.v2.json` is a complete two-case `TESTS_PASSED` record.

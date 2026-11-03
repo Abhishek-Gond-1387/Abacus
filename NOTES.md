@@ -19,7 +19,7 @@
 ## Next
 
 - Day 4 completed: staged named files, reviewed the staged diff, and created the first local commit.
-- Day 30 completed; Day 31: prevent secret leakage in logs.
+- Day 31 completed: prevent secret leakage in logs.
 
 ## Day 21 review
 
@@ -78,3 +78,7 @@ Generated and validated one complete sample plus one partial UNRESOLVED sample. 
 Default run filenames now include the problem ID, UTC timestamp, and UUID. The existing `runs/` Git ignore rule was confirmed. `save_run_record()` refuses an existing destination, writes and syncs a same-directory temporary file, renames it to the final path, then removes the `.incomplete` marker. The marker records run ID, final filename, temporary filename, and start time while a save is in progress, so interruption leaves recoverable state beside any partial file.
 
 Added `list-runs` and `show-run <run_id>` commands. Repeated-run fixtures create two independently valid files for the same problem; interrupted-rename simulation leaves the marker and temporary file available for inspection. A caller-supplied `--output` path is also protected from overwrite. Directory fsync is skipped on Windows; file contents are flushed and synced before rename.
+
+## Day 31 secret-safe logs
+
+Added a shared redaction layer at the run-record and budget-log write boundaries. It replaces values in credential-named fields and scrubs labeled key/value text, authorization headers, common provider token formats, private-key blocks, and configured secret values found in the process environment. Run records are also sanitized before being returned from the pipeline. Numeric token-usage counters stay intact. Because redaction can change proposal text stored in the dataset, the dataset SHA-256 is recomputed from the sanitized body; the problem-spec SHA-256 remains the original input fingerprint. This catches recognized patterns and named fields, not arbitrary unmarked secret text.

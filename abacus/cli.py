@@ -28,6 +28,8 @@ from practice.run_records import (
     find_run_record,
     list_run_records,
     save_run_record,
+    sanitize_for_log,
+    sanitize_run_record_for_log,
 )
 
 
@@ -465,7 +467,8 @@ def _default_run_path(
     runs_dir: str | Path = RUNS_DIR,
 ) -> Path:
     timestamp = started_at.astimezone(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ")
-    return Path(runs_dir) / f"{problem_id}_{timestamp}_{run_id}.json"
+    safe_problem_id = sanitize_for_log(problem_id)
+    return Path(runs_dir) / f"{safe_problem_id}_{timestamp}_{run_id}.json"
 
 
 def _model_proposal_records(spec: ProblemSpec, *, evaluated: bool) -> list[dict[str, Any]]:
@@ -739,6 +742,7 @@ def run_problem(
         if log_path is not None
         else _default_run_path(spec.problem_id, run_id, started_at, runs_dir)
     )
+    record_schema = sanitize_run_record_for_log(record_schema)
     save_run_record(destination, record_schema)
     run_record = record_schema
     run_record["log_path"] = str(destination)
@@ -926,6 +930,7 @@ def main(argv: list[str] | None = None) -> int:
             started_at=pipeline_started_at,
             duration_seconds=round(time.perf_counter() - pipeline_started_clock, 6),
         )
+        failure = sanitize_run_record_for_log(failure)
         log_path = requested_log_path
         if log_path is None or log_path.exists():
             log_path = _default_run_path(

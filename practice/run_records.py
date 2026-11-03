@@ -12,6 +12,8 @@ from pathlib import Path
 from uuid import UUID, uuid4
 from typing import Any
 
+from .log_safety import sanitize_for_log
+
 
 RUN_RECORD_SCHEMA_VERSION = 2
 RUN_STATUSES = {"complete", "partial", "error"}
@@ -343,6 +345,19 @@ def validate_run_record(record: Any) -> dict[str, Any]:
     return result
 
 
+def sanitize_run_record_for_log(record: Any) -> dict[str, Any]:
+    """Redact secrets and keep the stored dataset digest consistent."""
+    sanitized = sanitize_for_log(record)
+    if type(sanitized) is not dict:
+        raise RunRecordValidationError("Run record must be an object before redaction.")
+    problem = sanitized.get("problem")
+    if type(problem) is dict and type(problem.get("dataset")) is dict:
+        problem["dataset_sha256"] = _canonical_sha256(
+            {"dataset_version": problem.get("dataset_version"), **problem["dataset"]}
+        )
+    return sanitized
+
+
 def save_run_record(path: str | Path, record: dict[str, Any]) -> Path:
     """Validate and atomically save without replacing an earlier run.
 
@@ -350,7 +365,7 @@ def save_run_record(path: str | Path, record: dict[str, Any]) -> Path:
     If the process stops mid-write, the marker and any temporary bytes remain
     beside the destination and describe how far the save got.
     """
-    validated = validate_run_record(record)
+    validated = validate_run_record(sanitize_run_record_for_log(record))
     destination = Path(path)
     destination.parent.mkdir(parents=True, exist_ok=True)
     marker = destination.with_name(destination.name + ".incomplete")
@@ -371,7 +386,10 @@ def save_run_record(path: str | Path, record: dict[str, Any]) -> Path:
         "temporary_path": temporary.name,
         "started_at_utc": validated["timestamps"]["started_at_utc"],
     }
-    _write_fsynced_exclusive(marker, json.dumps(marker_payload, separators=(",", ":")) + "\n")
+    safe_marker_payload = sanitize_for_log(marker_payload)
+    _write_fsynced_exclusive(
+        marker, json.dumps(safe_marker_payload, separators=(",", ":")) + "\n"
+    )
     _fsync_directory(destination.parent)
 
     try:

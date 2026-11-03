@@ -108,3 +108,7 @@ List saved runs or filter by problem, then inspect one by its run ID:
     .\.venv\Scripts\python.exe -m abacus list-runs p01_true_sort
     .\.venv\Scripts\python.exe -m abacus show-run <RUN_ID>
     .\.venv\Scripts\python.exe -m unittest practice.test_run_storage
+
+## Day 31 secret-safe logs
+
+Run records and budget logs pass through a redaction layer before being written. It removes values under credential-like field names, recognizable authorization/token formats, labeled secret assignments, private-key blocks, and configured secret values from environment variables. Numeric usage counters such as `input_tokens` remain available. The saved dataset hash is recalculated from the redacted dataset body; `problem_spec_sha256` remains a fingerprint of the original input file.

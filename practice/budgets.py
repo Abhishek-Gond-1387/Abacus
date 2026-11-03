@@ -11,8 +11,10 @@ from pathlib import Path
 from typing import Any, Callable
 
 if __package__:
+    from .log_safety import sanitize_for_log
     from .outcomes import FinalOutcome, OutcomeReason, RunOutcome
 else:
+    from log_safety import sanitize_for_log
     from outcomes import FinalOutcome, OutcomeReason, RunOutcome
 
 
@@ -362,7 +364,7 @@ class BudgetTracker:
         destination.parent.mkdir(parents=True, exist_ok=True)
         temporary = destination.with_name(destination.name + ".tmp")
         payload = json.dumps(
-            self.to_dict(evidence_complete=evidence_complete),
+            sanitize_for_log(self.to_dict(evidence_complete=evidence_complete)),
             indent=2,
             ensure_ascii=False,
         )
