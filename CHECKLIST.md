@@ -66,3 +66,12 @@
 - [x] Save verdict, evidence, revision, errors, and budget usage to JSON logs.
 - [x] Verify a true example returns TESTS_PASSED and a false example returns replay-confirmed REFUTED.
 - [x] Inject an optional proposal-stage failure and verify the error and budget log are still saved.
+
+## Day 28 — Week 4 verdict semantics review
+
+- [x] Review run-level labels and separate them from case-level categories.
+- [x] Walk through the refutation input, actual output, expected output, and replay result.
+- [x] Explain why the true example's TESTS_PASSED result is not a proof.
+- [x] Show that a claim revision preserves the original scored claim and label.
+- [x] Record unresolved design questions without changing outcome labels.
+- [x] Add compact examples that distinguish REFUTED, TESTS_PASSED, UNRESOLVED, and ERROR.
