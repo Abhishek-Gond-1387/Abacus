@@ -1,4 +1,6 @@
 {$ABACUS_DOMAIN} {
 	encode zstd gzip
+	@ui_api path /ui-api/*
+	respond @ui_api "Server-side UI API proxy is disabled on public hosts." 404
 	reverse_proxy abacus-api:8000
 }

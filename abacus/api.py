@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import hashlib
-import ipaddress
 import json
 import logging
 import os
@@ -18,6 +17,7 @@ from typing import Any, Callable
 from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
+import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Security, status
 from fastapi.responses import JSONResponse, Response
 from fastapi.security import APIKeyHeader
@@ -39,6 +39,14 @@ PROBLEM_FILES = {
 REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 IDEMPOTENCY_PATTERN = re.compile(r"^[A-Za-z0-9_.:-]{16,128}$")
 CLIENT_ID_PATTERN = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$")
+LOCAL_UI_HOSTS = {"localhost", "127.0.0.1", "::1"}
+UI_PROXY_PATHS = {
+    ("GET", "/health/ready"),
+    ("GET", "/v1/problems"),
+    ("GET", "/v1/admin/clients"),
+    ("POST", "/v1/runs"),
+}
+UI_PROXY_MAX_RESPONSE_BYTES = 8 * 1024 * 1024
 API_KEY_HEADER = APIKeyHeader(name="X-API-Key", auto_error=False)
 LOGGER = logging.getLogger("abacus.api")
 
@@ -214,7 +222,7 @@ def create_app(
     api_key_clients = {
         policy["api_key"]: client_id for client_id, policy in client_api_keys.items()
     }
-    local_ui_auto_auth = os.getenv("ABACUS_LOCAL_UI_AUTO_AUTH", "0").strip().lower() in {
+    ui_proxy_enabled = os.getenv("ABACUS_UI_PROXY_ENABLED", "0").strip().lower() in {
         "1", "true", "yes",
     }
     run_mode = os.getenv("ABACUS_RUN_MODE", "inline").strip().lower()
@@ -287,22 +295,33 @@ def create_app(
         return client
 
     def is_local_ui_request(request: Request) -> bool:
-        """Limit the optional keyless browser flow to same-origin loopback requests."""
-        if not local_ui_auto_auth or request.client is None:
+        """Only expose the server-key proxy to direct loopback UI requests."""
+        if not ui_proxy_enabled:
+            return False
+        if any(request.headers.get(name) for name in (
+            "forwarded", "x-forwarded-for", "x-forwarded-host", "x-forwarded-proto",
+            "x-real-ip", "cf-connecting-ip", "true-client-ip",
+        )):
             return False
         try:
-            if not ipaddress.ip_address(request.client.host).is_loopback:
-                return False
             host_header = request.headers.get("host", "")
             host = urlsplit(f"//{host_header}")
-            if host.hostname not in {"localhost", "127.0.0.1", "::1"}:
+            if (
+                host.hostname not in LOCAL_UI_HOSTS
+                or host.username is not None
+                or host.password is not None
+                or host.path
+                or host.query
+                or host.fragment
+            ):
                 return False
+            host.port  # Validate a supplied port, including the valid range.
             origin_value = request.headers.get("origin")
             if origin_value:
                 origin = urlsplit(origin_value)
                 if (
-                    origin.scheme not in {"http", "https"}
-                    or origin.hostname not in {"localhost", "127.0.0.1", "::1"}
+                    origin.scheme != request.url.scheme
+                    or origin.hostname not in LOCAL_UI_HOSTS
                     or origin.netloc.casefold() != host.netloc.casefold()
                 ):
                     return False
@@ -312,17 +331,6 @@ def create_app(
 
     @app.middleware("http")
     async def structured_request_logging(request: Request, call_next):
-        local_policy = client_api_keys.get("default")
-        local_key = local_policy.get("api_key", "") if local_policy else ""
-        if (
-            request.url.path.startswith("/v1/") or request.url.path == "/metrics"
-        ) and b"x-api-key" not in {
-            name.lower() for name, _value in request.scope.get("headers", [])
-        } and len(local_key) >= 32 and is_local_ui_request(request):
-            request.scope["headers"] = [
-                *request.scope.get("headers", []),
-                (b"x-api-key", local_key.encode("latin-1")),
-            ]
         supplied_request_id = request.headers.get("X-Request-ID", "")
         request_id = (
             supplied_request_id
@@ -394,20 +402,152 @@ def create_app(
             )
         return {"status": "ready"}
 
-    @app.get("/ui/session", include_in_schema=False)
-    def local_ui_session(request: Request) -> dict[str, Any]:
-        """Report local-only auto-auth readiness without returning any API secret."""
-        policy = client_api_keys.get("default")
-        if not is_local_ui_request(request) or policy is None or len(policy["api_key"]) < 32:
-            raise HTTPException(status_code=404, detail="Local UI auto-connect is unavailable.")
-        client = store.get_client("default")
-        if client is None or not client["is_active"]:
-            raise HTTPException(status_code=503, detail="Local UI client is not ready.")
-        return {
-            "authenticated": True,
-            "client_id": client["client_id"],
-            "role": client["role"],
-        }
+    def ui_proxy_configuration(request: Request) -> tuple[str, str]:
+        if not is_local_ui_request(request):
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="The server-side UI proxy is disabled for this host.",
+            )
+        api_base = os.getenv("ABACUS_API_BASE_URL", "").strip()
+        api_key = os.getenv("ABACUS_API_KEY", "")
+        if not api_key:
+            default_client = client_api_keys.get("default")
+            if default_client is not None:
+                api_key = default_client.get("api_key", "")
+        try:
+            parsed = urlsplit(api_base)
+            if (
+                parsed.scheme not in {"http", "https"}
+                or not parsed.hostname
+                or parsed.username is not None
+                or parsed.password is not None
+                or parsed.query
+                or parsed.fragment
+                or parsed.path not in {"", "/"}
+                or (parsed.scheme == "http" and parsed.hostname not in LOCAL_UI_HOSTS)
+            ):
+                raise ValueError("invalid backend URL")
+            parsed.port
+        except ValueError as error:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="ABACUS_API_BASE_URL is missing or invalid; remote backends must use HTTPS.",
+            ) from error
+        if len(api_key) < 32:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="The server-side API proxy is missing its API key configuration.",
+            )
+        return api_base.rstrip("/"), api_key
+
+    async def proxy_api_request(
+        request: Request,
+        method: str,
+        path: str,
+        *,
+        json_body: dict[str, str] | None = None,
+        idempotency_key: str | None = None,
+    ) -> Response:
+        if (method, path) not in UI_PROXY_PATHS and not (
+            method == "GET" and re.fullmatch(r"/v1/runs/[0-9a-fA-F-]{36}", path)
+        ):
+            raise HTTPException(status_code=404, detail="Unsupported UI proxy route.")
+        api_base, api_key = ui_proxy_configuration(request)
+        headers = {"Accept": "application/json"}
+        if path != "/health/ready":
+            headers["X-API-Key"] = api_key
+        if json_body is not None:
+            headers["Content-Type"] = "application/json"
+        if idempotency_key is not None:
+            headers["Idempotency-Key"] = idempotency_key
+
+        incoming_host = request.headers.get("host", "")
+        incoming_origin = f"{request.url.scheme}://{incoming_host}"
+        transport: httpx.AsyncBaseTransport | None = None
+        try:
+            if urlsplit(api_base).geturl().casefold() == incoming_origin.rstrip("/").casefold():
+                transport = httpx.ASGITransport(app=app, client=("127.0.0.1", 0))
+            async with httpx.AsyncClient(
+                base_url=api_base,
+                transport=transport,
+                timeout=httpx.Timeout(20.0),
+                follow_redirects=False,
+            ) as client:
+                async with client.stream(method, path, headers=headers, json=json_body) as upstream:
+                    content = bytearray()
+                    async for chunk in upstream.aiter_bytes():
+                        content.extend(chunk)
+                        if len(content) > UI_PROXY_MAX_RESPONSE_BYTES:
+                            raise HTTPException(
+                                status_code=status.HTTP_502_BAD_GATEWAY,
+                                detail="The API response exceeds the UI proxy size limit.",
+                            )
+                    response_headers = {"Cache-Control": "no-store"}
+                    for name in ("content-type", "retry-after", "www-authenticate"):
+                        value = upstream.headers.get(name)
+                        if value is not None:
+                            response_headers[name] = value
+                    return Response(
+                        content=bytes(content),
+                        status_code=upstream.status_code,
+                        headers=response_headers,
+                    )
+        except HTTPException:
+            raise
+        except (httpx.HTTPError, OSError) as error:
+            LOGGER.warning(json.dumps({
+                "event": "ui_api_proxy_failed",
+                "request_id": getattr(request.state, "request_id", None),
+                "error_type": type(error).__name__,
+            }, separators=(",", ":")))
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="The configured Abacus API could not be reached.",
+            ) from error
+
+    @app.get("/ui-api/session", include_in_schema=False)
+    def ui_proxy_session(request: Request) -> dict[str, Any]:
+        ui_proxy_configuration(request)
+        return {"configured": True, "transport": "server-side"}
+
+    @app.get("/ui-api/health/ready", include_in_schema=False)
+    async def ui_proxy_health(request: Request) -> Response:
+        return await proxy_api_request(request, "GET", "/health/ready")
+
+    @app.get("/ui-api/v1/problems", include_in_schema=False)
+    async def ui_proxy_problems(request: Request) -> Response:
+        return await proxy_api_request(request, "GET", "/v1/problems")
+
+    @app.get("/ui-api/v1/admin/clients", include_in_schema=False)
+    async def ui_proxy_admin_clients(request: Request) -> Response:
+        return await proxy_api_request(request, "GET", "/v1/admin/clients")
+
+    @app.post("/ui-api/v1/runs", include_in_schema=False)
+    async def ui_proxy_submit_run(
+        request: Request,
+        payload: RunRequest,
+        idempotency_key: str = Header(alias="Idempotency-Key"),
+    ) -> Response:
+        try:
+            parsed_key = UUID(idempotency_key)
+        except (ValueError, AttributeError) as error:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Idempotency-Key must be a UUID.",
+            ) from error
+        if payload.problem_id not in PROBLEM_FILES:
+            raise HTTPException(status_code=404, detail="Unknown problem_id.")
+        return await proxy_api_request(
+            request,
+            "POST",
+            "/v1/runs",
+            json_body=payload.model_dump(),
+            idempotency_key=str(parsed_key),
+        )
+
+    @app.get("/ui-api/v1/runs/{run_id}", include_in_schema=False)
+    async def ui_proxy_get_run(request: Request, run_id: UUID) -> Response:
+        return await proxy_api_request(request, "GET", f"/v1/runs/{run_id}")
 
     @app.get("/metrics", include_in_schema=False, dependencies=[Depends(authenticated_client)])
     def prometheus_metrics() -> Response:
@@ -551,12 +691,15 @@ def create_app(
     @app.get("/v1/runs/{run_id}", tags=["runs"])
     def get_run(
         run_id: UUID,
+        response: Response,
         client: dict[str, Any] = Depends(authenticated_client),
     ) -> dict[str, Any]:
         client_id = client["client_id"]
         row = store.get_run(str(run_id), client_id=client_id)
         if row is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found.")
+        if row["state"] in {"queued", "running"}:
+            response.headers["Retry-After"] = "1"
         return _public_run(row, include_record=row["state"] == "finished")
 
     frontend_dir = PROJECT_ROOT / "frontend"

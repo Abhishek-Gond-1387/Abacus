@@ -13,8 +13,21 @@ if (-not [string]::IsNullOrWhiteSpace($env:ABACUS_CLIENT_API_KEYS)) {
         throw 'ABACUS_CLIENT_API_KEYS is not valid JSON.'
     }
     if (-not ($configuredClients.PSObject.Properties.Name -contains 'default')) {
-        throw 'Local auto-connect requires a default client in ABACUS_CLIENT_API_KEYS.'
+        throw 'The local UI proxy needs a default client in ABACUS_CLIENT_API_KEYS.'
     }
+    $defaultClient = $configuredClients.default
+    if ($defaultClient -is [string]) {
+        $proxyKey = $defaultClient
+    } else {
+        $proxyKey = $defaultClient.api_key
+    }
+    if ([string]::IsNullOrWhiteSpace($proxyKey) -or $proxyKey.Length -lt 32) {
+        throw 'The default client key must contain at least 32 characters.'
+    }
+    if (-not [string]::IsNullOrWhiteSpace($env:ABACUS_API_KEY) -and $env:ABACUS_API_KEY -cne $proxyKey) {
+        throw 'When using named clients, ABACUS_API_KEY must match the default client key for the local UI proxy.'
+    }
+    $env:ABACUS_API_KEY = $proxyKey
 } elseif ([string]::IsNullOrWhiteSpace($env:ABACUS_API_KEY) -or $env:ABACUS_API_KEY.Length -lt 32) {
     $env:ABACUS_API_KEY = (& $python -c 'import secrets; print(secrets.token_urlsafe(48))').Trim()
     if ($LASTEXITCODE -ne 0 -or $env:ABACUS_API_KEY.Length -lt 32) {
@@ -22,7 +35,6 @@ if (-not [string]::IsNullOrWhiteSpace($env:ABACUS_CLIENT_API_KEYS)) {
     }
 }
 
-$env:ABACUS_LOCAL_UI_AUTO_AUTH = '1'
 if ([string]::IsNullOrWhiteSpace($env:ABACUS_RUN_MODE)) {
     $env:ABACUS_RUN_MODE = 'inline'
 }
@@ -34,11 +46,13 @@ if (-not [string]::IsNullOrWhiteSpace($env:ABACUS_PORT)) {
     }
     $port = $parsedPort
 }
+$env:ABACUS_API_BASE_URL = "http://127.0.0.1:$port"
+$env:ABACUS_UI_PROXY_ENABLED = '1'
 
 Push-Location $projectRoot
 try {
     Write-Host "Abacus UI: http://127.0.0.1:$port/"
-    Write-Host 'Local auto-connect is loopback-only. The API key is not printed or sent to the browser.'
+    Write-Host 'Server-side API proxy is enabled for loopback requests only. The API key is not printed or sent to the browser.'
     if ([string]::IsNullOrWhiteSpace($env:ABACUS_DATABASE_URL)) {
         Write-Host 'Database: persistent local SQLite under .abacus-data (or ABACUS_DATA_DIR if configured).'
     } else {

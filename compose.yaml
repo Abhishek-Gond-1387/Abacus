@@ -50,6 +50,8 @@ services:
     environment:
       ABACUS_API_KEY: ${ABACUS_API_KEY:-}
       ABACUS_CLIENT_API_KEYS: ${ABACUS_CLIENT_API_KEYS:-}
+      ABACUS_API_BASE_URL: ${ABACUS_API_BASE_URL:-http://127.0.0.1:8000}
+      ABACUS_UI_PROXY_ENABLED: ${ABACUS_UI_PROXY_ENABLED:-1}
       ABACUS_DATABASE_URL: >-
         postgresql+psycopg://abacus_app:${ABACUS_APP_PASSWORD:?Required in .env.api}@postgres:5432/abacus
       ABACUS_DATA_DIR: /data

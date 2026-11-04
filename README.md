@@ -50,11 +50,11 @@ The HTTP service exposes the checked-in sorting problems and runs the same local
 
 ### Abacus web interface
 
-The responsive web interface is served by FastAPI at the same origin. It calls the API, and the API persists data through SQLAlchemy; the browser never connects to the database. Start the API with the Docker Compose commands above, then open `http://127.0.0.1:8000/` (or the configured `ABACUS_PORT`). In Docker Compose mode, enter your local `.env.api` key in Settings; it stays in that tab's memory and is cleared when you disconnect or close the tab. Never put a shared admin key in a public frontend.
+The responsive web interface is served by FastAPI at the same origin. It calls a narrow `/ui-api/*` server-side proxy; only FastAPI reads `ABACUS_API_BASE_URL` and `ABACUS_API_KEY`, and SQLAlchemy connects to the database. The browser never receives an API key or database credential and never connects directly to SQLite or PostgreSQL. Start the API with the Docker Compose commands above, then open `http://127.0.0.1:8000/` (or the configured `ABACUS_PORT`). No CORS setup is needed for this same-origin flow.
 
-The frontend includes Overview, Problems, New Evaluation, Run History, Run Details, Admin, and Settings. History stores only recent run IDs and labels in the current browser; full records are reloaded from the API and remain scoped to the API client. The Admin view is read-only and appears only when the API accepts an admin key. The optional demo mode is clearly labeled and uses only in-memory examples; it never submits runs or mixes sample records with live results.
+The frontend includes Overview, Problems, New Evaluation, Run History, Run Details, Admin, and Settings. History stores only recent run IDs and labels in the current browser; full records are reloaded from the API and remain scoped to the API client. The Admin view is read-only and appears only when the API accepts its server-side admin key. The optional demo mode is clearly labeled and uses only in-memory examples; it never submits runs or mixes sample records with live results.
 
-For local development without Docker, enable the loopback-only session below. The browser then connects to the same-origin API automatically, while the configured API key remains server-side. The bypass is opt-in and requires a loopback client address plus a localhost/loopback `Host`; any supplied `Origin` must match that host. It does not apply to forwarded/public hostnames. If you serve the UI from a separate origin, use the Settings API-key form and configure an exact-origin CORS allowlist; never use wildcard CORS with a shared key. The interface uses no third-party analytics, paid service, or hosted font request.
+The proxy supports only readiness, the built-in problems list, run creation, run detail, and the read-only admin client list. Run creation accepts only a built-in problem ID and a UUID idempotency key. The UI polls live run details while queued or running, following `Retry-After`, and displays the returned evidence. The proxy rejects non-loopback Host/Origin values and forwarded requests; the Compose API port is bound to loopback, and the public Caddy site explicitly returns 404 for `/ui-api/*`. Public deployments and tunnels need a separately authenticated UI proxy before exposing live UI actions; never pass a shared API key through frontend configuration. The interface uses no third-party analytics, paid service, or hosted font request.
 
 Current pilot limits remain unchanged: only two built-in sorting problems are available; there is no custom code upload, user-defined test input, formal proof, or backend run-list endpoint. `TESTS_PASSED` means only that the scheduled finite test cases passed.
 
@@ -97,7 +97,7 @@ To configure separate API clients, set `ABACUS_CLIENT_API_KEYS` in `.env.api` to
 ABACUS_CLIENT_API_KEYS='{"default":{"api_key":"<random-secret>","role":"admin","daily_run_limit":100,"max_active_runs":3},"client-two":{"api_key":"<another-secret>","role":"member","daily_run_limit":25,"max_active_runs":2}}'
 ```
 
-Keys must be unique and at least 32 characters. Client secrets stay in environment configuration; PostgreSQL stores only client IDs, role, and limits. Keep the `default` client ID if existing runs should remain readable after upgrading. A client can inspect client roles and current usage at `GET /v1/admin/clients` only when its configured role is `admin`. Change policies in `.env.api` and recreate the API to apply them.
+Keys must be unique and at least 32 characters. Client secrets stay in environment configuration; PostgreSQL stores only client IDs, role, and limits. Keep the `default` client ID if existing runs should remain readable after upgrading. The local UI proxy uses `ABACUS_API_KEY` when set, or the `default` client secret from `ABACUS_CLIENT_API_KEYS`; configure that default as an admin if the UI should show the read-only admin view. A client can inspect client roles and current usage at `GET /v1/admin/clients` only when its configured role is `admin`. Change policies in `.env.api` and recreate the API to apply them.
 
 ### PostgreSQL backup and restore
 
@@ -195,11 +195,11 @@ For a free temporary HTTPS demo without buying a domain, Cloudflare Quick Tunnel
 cloudflared tunnel --url http://localhost:8000
 ```
 
-Keep that terminal running while using the URL. Quick Tunnels require no Cloudflare account or domain, but the URL changes when restarted, has no uptime guarantee, and is intended for testing/development rather than production. Anyone with the URL can reach the public API, so keep a strong API key configured. See [Cloudflare Quick Tunnel limits](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/).
+Keep that terminal running while using the URL. Quick Tunnels require no Cloudflare account or domain, but the URL changes when restarted, has no uptime guarantee, and is intended for testing/development rather than production. The browser UI's server-key proxy rejects the public tunnel hostname, so live UI actions remain local; direct API clients still need a strong API key. See [Cloudflare Quick Tunnel limits](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/).
 
 ### Run all local layers without Docker
 
-The one-command local launcher starts FastAPI on loopback, connects the browser UI automatically, and persists data in SQLite by default. It creates a random API key in the server process if no key is configured; it does not print or expose that key. SQLite persists across restarts. To use PostgreSQL instead, configure `ABACUS_DATABASE_URL` before starting.
+The one-command local launcher starts FastAPI on loopback, enables the loopback-only same-origin API proxy, and persists data in SQLite by default. It creates a random API key in the server process if no key is configured; it does not print or expose that key. `ABACUS_API_BASE_URL` points the proxy back to this local API. SQLite persists across restarts. To use PostgreSQL instead, configure `ABACUS_DATABASE_URL` before starting.
 
 ```powershell
 python -m venv .venv
@@ -207,7 +207,7 @@ python -m venv .venv
 .\Start-Abacus.ps1
 ```
 
-Open the URL printed by the launcher. The API applies the SQLite schema through Alembic at startup; evaluations, run state, and evidence are stored in that database. Stop the server with `Ctrl+C`. Keep `ABACUS_LOCAL_UI_AUTO_AUTH=0` (the default) for public/proxied deployments; those use normal API-key authentication.
+Open the URL printed by the launcher. The API applies the SQLite schema through Alembic at startup; evaluations, run state, and evidence are stored in that database. Stop the server with `Ctrl+C`. The proxy refuses non-loopback `Host` values and mismatched browser `Origin` values. Do not expose this local launcher directly to the internet.
 
 ## Day 5: first API call
 

@@ -2,7 +2,6 @@
   'use strict';
 
   const STORE = {
-    apiBase: 'abacus.apiBase',
     recentRuns: 'abacus.recentRunIds',
     theme: 'abacus.theme',
   };
@@ -56,11 +55,9 @@
   ];
 
   const state = {
-    view: 'overview', apiBase: localStorage.getItem(STORE.apiBase) || '', apiKey: '',
-    problems: [...builtInProblems], apiReady: null, connectionError: '', connected: false,
-    demo: false, search: '', currentRun: null, busy: false, error: '', clients: null,
-    adminAllowed: false, adminForbidden: false, localAutoAuth: false,
-    localAutoAuthDisabled: false, metrics: null, healthChecking: false,
+    view: 'overview', problems: [...builtInProblems], apiReady: null, connectionError: '', connected: false,
+    demo: false, search: '', currentRun: null, nextPollAt: 0, busy: false, error: '', clients: null,
+    adminAllowed: false, adminForbidden: false, healthChecking: false,
     theme: localStorage.getItem(STORE.theme) || 'light',
   };
   let toastTimer;
@@ -120,7 +117,7 @@
 
   function render() {
     document.body.classList.toggle('dark', state.theme === 'dark');
-    const connectionText = state.demo ? 'Demo data' : state.connected ? (state.localAutoAuth ? 'Local API connected' : 'API connected') : state.apiReady === false ? 'API unavailable' : 'Not connected';
+    const connectionText = state.demo ? 'Demo data' : state.connected ? 'API connected' : state.apiReady === false ? 'API unavailable' : 'Checking API';
     const connectionState = state.demo ? 'demo' : state.connected ? 'ready' : state.apiReady === false ? 'error' : '';
     app.innerHTML = `
       <div class="shell">
@@ -144,7 +141,7 @@
         </div>
       </div><div id="toast-slot" aria-live="polite"></div>`;
     introPending = false;
-    if (!state.connected && !state.demo && state.apiReady === null) checkPublicHealth();
+    if (!state.connected && !state.demo && state.apiReady === null) checkApiConnection();
   }
 
   function demoBanner() {
@@ -168,24 +165,26 @@
   function overviewView() {
     const runs = allRuns().slice(0, 3);
     const readiness = state.demo ? 'Demo preview' : state.apiReady === true ? 'Ready' : state.apiReady === false ? 'Unavailable' : 'Checking';
-    const readinessCopy = state.demo ? 'Sample data only; no API requests are being made.' : state.apiReady === true ? 'The API and its database answered the readiness check.' : state.apiReady === false ? 'Start the API, then check its status again.' : 'Checking the API readiness endpoint.';
-    const action = state.connected ? `<button class="button primary" data-view="new">Start an evaluation ${icon('arrow')}</button>` : `<button class="button primary" data-view="settings">Connect API ${icon('arrow')}</button>`;
+    const readinessCopy = state.demo ? 'Sample data only; no API requests are being made.' : state.apiReady === true ? 'The configured API and its database answered the readiness check.' : state.apiReady === false ? state.connectionError || 'The server-side API proxy or backend is unavailable.' : 'Checking the server-side proxy and API readiness.';
+    const action = state.connected ? `<button class="button primary" data-view="new">Start an evaluation ${icon('arrow')}</button>` : `<button class="button primary" data-view="settings">Check API connection ${icon('arrow')}</button>`;
+    const problemSource = state.demo ? 'Illustrative demo fixtures; not API data' : state.connected ? 'Loaded live from the API' : 'Built-in IDs shown locally; live catalogue not loaded';
     return `${heading('Evidence workspace', 'Understand what the tests show.', 'Abacus checks the supported claim against a trusted oracle and keeps the evidence attached to each run.')}
       <div class="overview-grid">
         <section class="card welcome"><div class="welcome-content"><div class="eyebrow">Python claim evaluation</div><h2>Small claims. Careful evidence.</h2><p>Inspect a supported sorting claim, run the checked evaluation, then review the evidence and any replay-confirmed counterexample.</p><div class="welcome-actions">${action}<button class="button" data-view="problems">Browse problems</button></div></div></section>
-        <section class="card readiness-card"><div class="readiness-main"><div class="eyebrow">Service status</div><div class="readiness-value"><i class="readiness-indicator ${state.apiReady === true ? 'ready' : ''}"></i>${esc(readiness)}</div><div class="readiness-sub">${esc(readinessCopy)}</div></div><div class="readiness-foot"><span>${state.demo ? 'Preview workspace' : 'GET /health/ready'}</span><button class="button ghost small" data-action="refresh-health">${icon('refresh')} Refresh</button></div></section>
+        <section class="card readiness-card"><div class="readiness-main"><div class="eyebrow">Service status</div><div class="readiness-value"><i class="readiness-indicator ${state.apiReady === true ? 'ready' : ''}"></i>${esc(readiness)}</div><div class="readiness-sub">${esc(readinessCopy)}</div></div><div class="readiness-foot"><span>${state.demo ? 'Preview workspace' : 'Server-side proxy'}</span><button class="button ghost small" data-action="refresh-health">${icon('refresh')} Refresh</button></div></section>
       </div>
       <div class="overview-lower">
-        <section class="card"><div class="card-head"><div><h2>Supported problems</h2><p>Two built-in integer sorting claims</p></div><button class="button ghost small" data-view="problems">View all ${icon('arrow')}</button></div><div class="problem-mini-list">${state.problems.map((problem) => `<div class="problem-mini"><div class="problem-mini-copy"><h3>${esc(problem.problem_id === 'p01_true_sort' ? 'Ascending sort, preserving duplicates' : 'Ascending sort, duplicate handling')}</h3><p>${esc(problem.target_id)} · ${esc(problem.claim)}</p></div><span class="mono">${esc(problem.problem_id)}</span></div>`).join('')}</div></section>
+        <section class="card"><div class="card-head"><div><h2>Supported problems</h2><p>${esc(problemSource)}</p></div><button class="button ghost small" data-view="problems">View all ${icon('arrow')}</button></div><div class="problem-mini-list">${state.problems.map((problem) => `<div class="problem-mini"><div class="problem-mini-copy"><h3>${esc(problem.problem_id === 'p01_true_sort' ? 'Ascending sort, preserving duplicates' : 'Ascending sort, duplicate handling')}</h3><p>${esc(problem.target_id)} · ${esc(problem.claim)}</p></div><span class="mono">${esc(problem.problem_id)}</span></div>`).join('')}</div></section>
         <section class="card"><div class="card-head"><div><h2>Recent activity</h2><p>Stored in this browser only</p></div></div>${runs.length ? `<div class="problem-mini-list">${runs.map((run) => `<div class="problem-mini"><div class="problem-mini-copy"><h3><button class="run-link" data-run="${esc(run.run_id)}">${esc(tinyId(run.run_id))}</button></h3><p>${esc(run.problem_id)}</p></div>${badge(run.outcome || statusSummary(run.state), outcomeClass(run.outcome))}</div>`).join('')}</div>` : `<div class="empty-state"><div><strong>No recent runs</strong><p>Start an evaluation; its run ID will appear here for this browser.</p></div></div>`}</section>
       </div>
-      ${state.metrics !== null ? `<section class="card section-spacer"><div class="card-head"><div><h2>Service requests</h2><p>Aggregate HTTP requests recorded by the API; not evaluation totals.</p></div><span class="eyebrow">Admin metrics</span></div><div class="metric-content"><div class="metric-num">${Number.isFinite(state.metrics) ? esc(state.metrics.toLocaleString()) : '—'}</div><div class="metric-label">Persisted API requests</div></div></section>` : ''}`;
+      `;
   }
 
   function problemsView() {
     const query = state.search.trim().toLowerCase();
     const matches = state.problems.filter((problem) => JSON.stringify(problem).toLowerCase().includes(query));
-    return `${heading('Problem catalogue', 'Supported problems', 'The pilot evaluates two built-in integer sorting problems. Search filters the problems already loaded from the API.', `<label class="search-box">${icon('search')}<input aria-label="Search supported problems" id="problem-search" value="${esc(state.search)}" placeholder="Search problems" autocomplete="off" /></label>`)}
+    const source = state.demo ? 'Demo fixture catalogue; not connected to the API.' : state.connected ? 'Live catalogue returned by the API.' : 'Showing the two built-in IDs for reference; a live catalogue has not loaded.';
+    return `${heading('Problem catalogue', 'Supported problems', `${source} Search filters the currently displayed problems.`, `<label class="search-box">${icon('search')}<input aria-label="Search supported problems" id="problem-search" value="${esc(state.search)}" placeholder="Search problems" autocomplete="off" /></label>`)}
       ${matches.length ? `<div class="problem-grid">${matches.map(problemCard).join('')}</div>` : `<section class="card empty-state"><div><strong>No matching problem</strong><p>Try another search term.</p></div></section>`}
       <p class="form-hint section-spacer">There is no endpoint for custom problems, code uploads, or user-defined inputs.</p>`;
   }
@@ -198,9 +197,9 @@
   function newRunView() {
     const selected = state.selectedProblem || 'p01_true_sort';
     const problemChoices = state.problems.map((problem) => `<button type="button" class="problem-option ${selected === problem.problem_id ? 'selected' : ''}" data-action="select-problem" data-problem="${esc(problem.problem_id)}" aria-pressed="${selected === problem.problem_id}"><i class="radio"></i><span class="option-copy"><strong>${problem.problem_id === 'p01_true_sort' ? 'Preserve every value' : 'Check duplicate handling'} <span class="mono muted">· ${esc(problem.problem_id)}</span></strong><span>${esc(problem.claim)}</span></span></button>`).join('');
-    const alert = state.error ? `<div class="inline-alert" role="alert">${esc(state.error)}${state.retryAvailable ? ` <button class="button small" data-action="retry-run">Retry after ${Math.min(10, Math.max(1, Number(state.retryAfter) || 1))} sec</button>` : ''}</div>` : '';
+    const alert = state.error ? `<div class="inline-alert" role="alert">${esc(state.error)}${state.retryAvailable ? ` <button class="button small" data-action="retry-run">Retry after ${Math.max(1, Number(state.retryAfter) || 1)} sec</button>` : ''}</div>` : '';
     return `${heading('Run setup', 'Start an evaluation', 'Choose one built-in problem. The API runs its predefined, bounded evaluation and stores the authoritative result.')}
-      <section class="card form-card"><div class="form-section"><h2>1. Select a problem</h2><p>Only the checked-in problem IDs are accepted by the current API.</p>${problemChoices}</div><div class="form-section"><h2>2. Review the run boundary</h2><p>This request sends only the selected problem ID. No code or custom input is uploaded.</p><div class="note-box">A <strong>TESTS_PASSED</strong> result means the scheduled finite tests passed. It does not prove the claim for every possible input.</div>${alert}</div><div class="form-footer"><span>${state.busy ? `<span class="loader"><svg class="loader-mark" viewBox="0 0 112 112" fill="none"><path d="M56 7 96 30v52l-40 23L16 82V30L56 7Z" stroke="#191917" stroke-width="6" stroke-linejoin="round"/><circle cx="56" cy="56" r="9" fill="#ef583c"/></svg>${state.busyMessage || 'Submitting and checking run…'}</span>` : `<span class="form-hint">${state.demo ? 'Demo mode creates a labeled sample record only.' : state.connected ? 'The API key stays in memory for this tab.' : 'Connect your API key in Settings before submitting.'}</span>`}</span><button class="button primary" data-action="submit-run" ${state.busy || (!state.connected && !state.demo) ? 'disabled' : ''}>${state.busy ? 'Working…' : 'Run evaluation'} ${icon('arrow')}</button></div></section>`;
+      <section class="card form-card"><div class="form-section"><h2>1. Select a problem</h2><p>Only the checked-in problem IDs are accepted by the current API.</p>${problemChoices}</div><div class="form-section"><h2>2. Review the run boundary</h2><p>This request sends only the selected problem ID. No code or custom input is uploaded.</p><div class="note-box">A <strong>TESTS_PASSED</strong> result means the scheduled finite tests passed. It does not prove the claim for every possible input.</div>${alert}</div><div class="form-footer"><span>${state.busy ? `<span class="loader"><svg class="loader-mark" viewBox="0 0 112 112" fill="none"><path d="M56 7 96 30v52l-40 23L16 82V30L56 7Z" stroke="#191917" stroke-width="6" stroke-linejoin="round"/><circle cx="56" cy="56" r="9" fill="#ef583c"/></svg>${state.busyMessage || 'Submitting and checking run…'}</span>` : `<span class="form-hint">${state.demo ? 'Demo mode creates a labeled sample record only.' : state.connected ? 'The server-side proxy submits this request with its protected API key.' : 'Enable the server-side proxy in FastAPI Settings before submitting.'}</span>`}</span><button class="button primary" data-action="submit-run" ${state.busy || (!state.connected && !state.demo) ? 'disabled' : ''}>${state.busy ? 'Working…' : 'Run evaluation'} ${icon('arrow')}</button></div></section>`;
   }
 
   function runsView() {
@@ -213,7 +212,7 @@
   function runView() {
     const run = state.currentRun;
     if (!run) return `${heading('Run record', 'Run details', 'Open a run from browser history to load its authoritative record.')}
-      <section class="card empty-state"><div><strong>No run selected</strong><p>Choose a recent run to view its current API record and evidence.</p><button class="button" data-view="runs">Open run history</button></div></section>`;
+      <section class="card empty-state"><div>${state.busy ? `<span class="loader" role="status">${loaderMark()} ${esc(state.busyMessage || 'Loading the run record…')}</span>` : `<strong>No run selected</strong><p>Choose a recent run to view its current API record and evidence.</p><button class="button" data-view="runs">Open run history</button>`}</div></section>`;
     const problem = problemFor(run.problem_id);
     const record = run.record || {};
     const outcome = (record.outcome && record.outcome.outcome) || run.outcome;
@@ -223,7 +222,8 @@
     const resultTitle = ({ REFUTED: 'Counterexample confirmed', TESTS_PASSED: 'Scheduled tests passed', UNRESOLVED: 'Evidence is unresolved', ERROR: 'Evaluation error' }[outcome] || statusSummary(run.state));
     const metricHint = outcome === 'TESTS_PASSED' ? 'A finite test pass is not a formal proof.' : outcome === 'ERROR' ? 'An error is not a verdict.' : outcome === 'REFUTED' ? 'The candidate was checked against the trusted oracle and replayed.' : 'Review the evidence and completion status together.';
     const evidenceRows = evidence.map((item) => `<tr><td><span class="evidence-method ${item.method === 'proposals' ? 'proposal' : ''}">${item.method === 'proposals' ? 'OFFLINE SUGGESTION' : esc(item.method || '—')}</span></td><td class="mono">${esc(item.test_id || '—')}</td><td><span class="evidence-json">${esc(jsonText(item.input_value))}</span></td><td><span class="evidence-json">${esc(jsonText(item.actual))}</span></td><td><span class="evidence-json">${esc(jsonText(item.expected))}</span></td><td>${badge(item.status, item.status === 'completed' ? 'green' : item.status === 'internal_error' ? 'red' : 'amber')}</td><td>${esc(item.failure_category || item.category || '—')}</td><td>${item.replay_confirmed === true ? badge('Replayed', 'green') : item.replay_confirmed === false ? badge('Not confirmed', 'red') : '—'}</td></tr>`).join('');
-    const busyMessage = ['queued', 'running'].includes(run.state) ? `<div class="inline-alert" role="status">This run is ${esc(run.state)}. Refresh the record to check its current status. <button class="button small" data-action="refresh-run">${icon('refresh')} Refresh</button></div>` : '';
+    const nextPollSeconds = Math.max(0, Math.ceil((state.nextPollAt - Date.now()) / 1000));
+    const busyMessage = state.busy ? `<div class="inline-alert" role="status"><span class="loader">${loaderMark()} ${esc(state.busyMessage || 'Loading the run record…')}</span></div>` : ['queued', 'running'].includes(run.state) ? `<div class="inline-alert" role="status">This run is ${esc(run.state)}.${nextPollSeconds ? ` Next poll in about ${nextPollSeconds} second${nextPollSeconds === 1 ? '' : 's'} (Retry-After).` : ''} <button class="button small" data-action="refresh-run">${icon('refresh')} Check run</button></div>` : '';
     return `${heading('Run record', 'Run details', 'The evidence and verdict below come from the run record stored by the API.', `<button class="button small" data-action="copy" data-copy="${esc(run.run_id)}">${icon('copy')} Copy run ID</button>`)}
       ${busyMessage}
       <div class="run-layout"><div>
@@ -237,8 +237,8 @@
   }
 
   function adminView() {
-    if (state.demo) return `${heading('Access-controlled', 'Admin overview', 'Admin policy and usage are never simulated in demo mode.')}<section class="card empty-state"><div><strong>No demo admin data</strong><p>Connect to the API with an admin key to view actual client limits and usage.</p></div></section>`;
-    if (!state.connected) return `${heading('Access-controlled', 'Admin overview', 'This read-only page requires an admin API key.')}<section class="card empty-state"><div><strong>Connect as an administrator</strong><p>Enter the operator key in Settings. The API determines your role.</p><button class="button" data-view="settings">Open settings</button></div></section>`;
+    if (state.demo) return `${heading('Access-controlled', 'Admin overview', 'Admin policy and usage are never simulated in demo mode.')}<section class="card empty-state"><div><strong>No demo admin data</strong><p>Exit demo mode to view client limits and usage returned by the server-side API proxy.</p></div></section>`;
+    if (!state.connected) return `${heading('Access-controlled', 'Admin overview', 'This read-only page requires an admin API key.')}<section class="card empty-state"><div><strong>Connect as an administrator</strong><p>Configure the server-side API key on the FastAPI host. The API determines its role.</p><button class="button" data-view="settings">Open settings</button></div></section>`;
     if (state.adminForbidden) return `${heading('Access-controlled', 'Admin overview', 'This read-only page requires an admin API key.')}<section class="card empty-state"><div><strong>Admin access required</strong><p>The connected API key does not have permission to list client policies.</p></div></section>`;
     if (!state.clients) return `${heading('Access-controlled', 'Admin overview', 'Read-only client policy and aggregate quota usage from the API.')}<section class="card empty-state"><div><span class="loader">${loaderMark()} Loading admin data…</span></div></section>`;
     return `${heading('Access-controlled', 'Admin overview', 'Client roles, limits, and current usage returned by the API. Keys are never included.', `<button class="button small" data-action="refresh-admin">${icon('refresh')} Refresh</button>`)}
@@ -246,173 +246,99 @@
   }
 
   function settingsView() {
-    const base = state.apiBase || window.location.origin;
-    const connectionState = state.demo ? 'Demo mode is active. No secret is stored or sent.' : state.localAutoAuth ? 'Connected through the loopback-only local session. The API key stays on the server and is never sent to the browser.' : state.connected ? `Connected to ${state.apiBase || window.location.origin}. The key is held in memory for this tab only.` : 'The API key is held in page memory only. It is never saved to local storage.';
-    const form = state.busy ? `<div class="loader">${loaderMark()} Connecting to the API…</div>` : state.connected ? `<div class="note-box">${esc(connectionState)}</div><div style="display:flex;gap:9px;margin-top:13px"><button class="button" data-action="disconnect">Disconnect and clear key</button><button class="button primary" data-action="refresh-health">Refresh connection</button></div>` : `<form id="connection-form"><label class="form-label" for="api-base">API base URL</label><input class="input mono" id="api-base" name="apiBase" value="${esc(base)}" placeholder="http://localhost:8000" autocomplete="url" /><div class="form-hint">Same-origin is recommended. When served by FastAPI, this is already set to the API origin.</div><label class="form-label" for="api-key" style="margin-top:15px">Your API key</label><input class="input mono" id="api-key" name="apiKey" type="password" required minlength="32" autocomplete="off" placeholder="Paste your operator key" /><div class="form-hint">Do not paste a shared admin key into a public site. This local connection form keeps it in memory only and clears it when you disconnect or close the tab.</div><div style="display:flex;gap:9px;align-items:center;margin-top:16px"><button class="button primary" type="submit">Connect to API ${icon('arrow')}</button><button class="button" type="button" data-action="demo">Preview demo</button></div>${state.error ? `<div class="inline-alert" role="alert">${esc(state.error)}</div>` : ''}</form>`;
-    return `${heading('Connection', 'Settings', 'Connect the interface to your Abacus API or open the labeled sample preview.')}
-      <div class="settings-grid"><section class="card form-card"><div class="form-section"><h2>API connection</h2><p>Calls use the existing backend. The frontend does not connect directly to the database.</p>${form}</div></section>
-      <aside class="card settings-info"><h3>Safe by default</h3><ul><li>API keys stay in page memory and are cleared on disconnect.</li><li>Run history stores only IDs and labels in this browser.</li><li>Serving the interface from FastAPI keeps requests same-origin.</li><li>Never expose a shared admin key in a public frontend.</li></ul><h3>Current pilot scope</h3><p>Two integer sorting problems. No custom code or inputs are uploaded. Offline suggestions are not an AI service call.</p><button class="button small" data-action="demo">Preview labeled demo data</button></aside></div>`;
+    const connectionState = state.demo ? 'Demo mode is active. These records are samples and no backend calls are made.' : state.connected ? 'Connected through the same-origin FastAPI proxy. The API key and database configuration stay on the server.' : state.connectionError || 'Checking the server-side API proxy configuration…';
+    const form = state.healthChecking ? `<div class="loader" role="status">${loaderMark()} Checking the server-side proxy and API readiness…</div>` : `<div class="note-box" role="status">${esc(connectionState)}</div><div style="display:flex;gap:9px;margin-top:13px"><button class="button primary" data-action="refresh-health">${icon('refresh')} ${state.connected ? 'Refresh connection' : 'Check connection'}</button><button class="button" data-action="demo">Preview demo</button></div>`;
+    return `${heading('Connection', 'Settings', 'The UI calls the allowlisted same-origin proxy; it never receives an API key or connects to the database.')}
+      <div class="settings-grid"><section class="card form-card"><div class="form-section"><h2>Server-side API connection</h2><p>Configure <code>ABACUS_API_BASE_URL</code> and <code>ABACUS_API_KEY</code> in the FastAPI server environment, then enable <code>ABACUS_UI_PROXY_ENABLED=1</code> for loopback-only local use.</p>${form}</div></section>
+      <aside class="card settings-info"><h3>Security and scope</h3><ul><li>API keys never enter browser code, requests, logs, or local storage.</li><li>Database credentials remain on the backend.</li><li>The UI proxy accepts direct loopback requests only; public hosts and tunnels need separate authenticated access.</li><li>Only p01_true_sort and p02_false_sort are supported; code and custom arrays cannot be uploaded.</li></ul><h3>Evidence labels</h3><p><code>TESTS_PASSED</code> means no counterexample was found in the executed tests. It does not prove correctness.</p></aside></div>`;
   }
 
   function loaderMark() { return `<svg class="loader-mark" viewBox="0 0 112 112" fill="none"><path d="M56 7 96 30v52l-40 23L16 82V30L56 7Z" stroke="#191917" stroke-width="6" stroke-linejoin="round"/><circle cx="56" cy="56" r="9" fill="#ef583c"/></svg>`; }
 
-  async function checkPublicHealth() {
-    if (state.healthChecking || state.demo || state.connected) return;
+  async function checkApiConnection() {
+    if (state.healthChecking || state.demo) return;
     state.healthChecking = true;
+    state.connectionError = '';
+    if (state.view !== 'run') render();
     try {
-      const response = await fetch(`${getBase()}/health/ready`, { headers: { Accept: 'application/json' }, cache: 'no-store' });
-      state.apiReady = response.ok;
-      if (response.ok && !state.localAutoAuthDisabled) await connectLocalSession();
-    } catch {
+      const sessionResponse = await fetch('/ui-api/session', { headers: { Accept: 'application/json' }, cache: 'no-store' });
+      if (!sessionResponse.ok) {
+        const data = await readJson(sessionResponse);
+        throw new Error(data?.detail || 'Server-side API proxy is not configured or is unavailable for this host.');
+      }
+      await connectServerProxy();
+    } catch (error) {
       state.apiReady = false;
+      state.connected = false;
+      state.connectionError = error.message || 'Could not reach the server-side API proxy.';
     } finally {
       state.healthChecking = false;
     }
     if (state.view !== 'run') render();
   }
 
-  async function connectLocalSession() {
+  async function connectServerProxy() {
+    state.connectionError = '';
     try {
-      const response = await fetch(`${getBase()}/ui/session`, { headers: { Accept: 'application/json' }, cache: 'no-store' });
-      if (!response.ok) return false;
-      const session = await response.json();
-      if (session.authenticated !== true || !session.client_id) return false;
-      const { data: problems } = await apiRequest('/v1/problems');
-      if (!Array.isArray(problems) || problems.length === 0) return false;
+      const { response: health } = await apiRequest('/ui-api/health/ready');
+      state.apiReady = health.ok;
+      const { data: problems } = await apiRequest('/ui-api/v1/problems');
+      if (!Array.isArray(problems) || problems.length !== 2) throw new Error('The API did not return its two supported built-in problems.');
       state.problems = problems;
       state.connected = true;
-      state.localAutoAuth = true;
-      state.adminAllowed = session.role === 'admin';
+      state.adminAllowed = false;
       state.adminForbidden = false;
       state.clients = null;
-      if (state.adminAllowed) {
-        try {
-          const { data: clients } = await apiRequest('/v1/admin/clients');
-          state.clients = Array.isArray(clients) ? clients : [];
-        } catch {
-          state.adminAllowed = false;
-          state.adminForbidden = true;
-        }
-      }
-      await loadMetrics();
-      return true;
-    } catch {
-      state.connected = false;
-      state.localAutoAuth = false;
-      state.adminAllowed = false;
-      return false;
-    }
-  }
-
-  function getBase() {
-    const raw = state.apiBase || window.location.origin;
-    return raw.replace(/\/+$/, '');
-  }
-
-  async function apiRequest(path, options = {}) {
-    const headers = new Headers(options.headers || {});
-    headers.set('Accept', 'application/json');
-    if (state.apiKey) headers.set('X-API-Key', state.apiKey);
-    const response = await fetch(`${getBase()}${path}`, { ...options, headers, cache: 'no-store' });
-    let data = null;
-    const contentType = response.headers.get('content-type') || '';
-    if (contentType.includes('application/json')) {
-      try { data = await response.json(); } catch { data = null; }
-    }
-    if (!response.ok) {
-      const error = new Error(errorMessage(response.status, data));
-      error.status = response.status;
-      error.retryAfter = Number(response.headers.get('Retry-After')) || 1;
-      throw error;
-    }
-    return { response, data };
-  }
-
-  function errorMessage(status, data) {
-    if (status === 401) return 'That API key was not accepted. Check it and connect again.';
-    if (status === 403) return 'This key does not have permission for that page or action.';
-    if (status === 404) return 'The run or problem could not be found for this API key.';
-    if (status === 409) return 'This run request conflicts with an earlier idempotency key. Start a fresh evaluation.';
-    if (status === 429) return 'The configured run limit has been reached. Wait for the quota window to reset.';
-    if (status === 500) return 'The API could not complete this request. Check the service and try again later.';
-    if (status === 503) return 'The API or its database is temporarily unavailable. Check readiness, then retry.';
-    if (status === 400) return 'The API rejected the request format. Refresh the app and try again.';
-    if (data?.detail && typeof data.detail === 'string') return data.detail;
-    return `The API returned HTTP ${status}. Try again after checking the service.`;
-  }
-
-  function apiBaseFromForm(raw) {
-    const value = raw.trim().replace(/\/+$/, '');
-    let url;
-    try { url = new URL(value); } catch { throw new Error('Enter a complete API URL, such as http://localhost:8000.'); }
-    if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error('Use an HTTP(S) API base URL without credentials, query values, or fragments.');
-    const local = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname);
-    if (url.protocol === 'http:' && !local) throw new Error('Remote API connections must use HTTPS. Plain HTTP is allowed only for localhost.');
-    return url.origin + url.pathname.replace(/\/+$/, '');
-  }
-
-  async function connect(form) {
-    state.error = '';
-    const data = new FormData(form);
-    let base;
-    try { base = apiBaseFromForm(String(data.get('apiBase') || '')); }
-    catch (error) { state.error = error.message; render(); return; }
-    const key = String(data.get('apiKey') || '').trim();
-    if (key.length < 32) { state.error = 'API keys must be at least 32 characters.'; render(); return; }
-    state.apiBase = base;
-    state.apiKey = key;
-    state.connected = false;
-    state.localAutoAuth = false;
-    state.demo = false;
-    state.clients = null;
-    state.adminForbidden = false;
-    state.busy = true;
-    state.busyMessage = 'Checking API readiness and access…';
-    localStorage.setItem(STORE.apiBase, base);
-    render();
-    try {
-      const health = await fetch(`${getBase()}/health/ready`, { headers: { Accept: 'application/json' }, cache: 'no-store' });
-      state.apiReady = health.ok;
-      if (!health.ok) throw new Error('The API is not ready yet. Start the API and database, then reconnect.');
-      const { data: problems } = await apiRequest('/v1/problems');
-      if (!Array.isArray(problems) || problems.length === 0) throw new Error('The API did not return any supported problems.');
-      state.problems = problems;
-      state.connected = true;
-      state.adminAllowed = false;
       try {
-        const { data: clients } = await apiRequest('/v1/admin/clients');
+        const { data: clients } = await apiRequest('/ui-api/v1/admin/clients');
         state.clients = Array.isArray(clients) ? clients : [];
         state.adminAllowed = true;
       } catch (error) {
         state.adminForbidden = error.status === 403;
       }
       state.connectionError = '';
-      state.error = '';
-      state.busy = false;
-      state.view = 'overview';
-      await loadMetrics();
-      toast('Connected. Your API key remains in this tab only.');
+      return true;
     } catch (error) {
       state.connected = false;
-      state.busy = false;
-      state.apiKey = '';
-      state.error = error.status ? error.message : (error.message.includes('Failed to fetch') ? 'Could not reach the API. Check its address, that it is running, and same-origin/CORS setup.' : error.message);
-      render();
-      return;
+      state.apiReady = false;
+      state.adminAllowed = false;
+      state.connectionError = error.message || 'Could not reach the configured Abacus API.';
+      return false;
     }
-    render();
   }
 
-  async function loadMetrics() {
-    if (!state.connected || state.demo) return;
-    try {
-      const response = await fetch(`${getBase()}/metrics`, { headers: { Accept: 'text/plain', 'X-API-Key': state.apiKey }, cache: 'no-store' });
-      if (response.status === 403) return;
-      if (!response.ok) return;
-      const body = await response.text();
-      const match = body.match(/^abacus_http_requests_total\s+(\d+(?:\.\d+)?)/m);
-      state.metrics = match ? Number(match[1]) : null;
-    } catch { state.metrics = null; }
+  async function readJson(response) {
+    const contentType = response.headers.get('content-type') || '';
+    if (!contentType.includes('application/json')) return null;
+    try { return await response.json(); } catch { return null; }
+  }
+
+  async function apiRequest(path, options = {}) {
+    const headers = new Headers(options.headers || {});
+    headers.set('Accept', 'application/json');
+    const response = await fetch(path, { ...options, headers, cache: 'no-store' });
+    const data = await readJson(response);
+    if (!response.ok) {
+      const error = new Error(errorMessage(response.status, data));
+      error.status = response.status;
+      error.retryAfter = retryAfterSeconds(response.headers.get('Retry-After'));
+      if (response.status === 429) error.message = `Run quota reached. Retry after ${error.retryAfter} second${error.retryAfter === 1 ? '' : 's'}.`;
+      throw error;
+    }
+    return { response, data };
+  }
+
+  function errorMessage(status, data) {
+    if (status === 401) return 'The backend rejected its server-side API key. Check the FastAPI host configuration.';
+    if (status === 403) return 'This server-side API key does not have permission for that page or action.';
+    if (status === 404) return 'The run or problem could not be found for this API key.';
+    if (status === 409) return 'This run request conflicts with an earlier idempotency key. Start a fresh evaluation.';
+    if (status === 429) return 'Run quota reached. Wait for the Retry-After interval before submitting another run.';
+    if (status === 500) return 'The API could not complete this request. Check the service and try again later.';
+    if (status === 503) return 'The API or its database is temporarily unavailable. Check readiness, then retry.';
+    if (status === 400) return 'The API rejected the request format. Refresh the app and try again.';
+    if (data?.detail && typeof data.detail === 'string') return data.detail;
+    return `The API returned HTTP ${status}. Try again after checking the service.`;
   }
 
   async function loadAdmin() {
@@ -421,7 +347,7 @@
     state.adminForbidden = false;
     render();
     try {
-      const { data } = await apiRequest('/v1/admin/clients');
+      const { data } = await apiRequest('/ui-api/v1/admin/clients');
       state.clients = Array.isArray(data) ? data : [];
     } catch (error) {
       if (error.status === 403) { state.adminForbidden = true; state.adminAllowed = false; }
@@ -431,9 +357,12 @@
   }
 
   async function openRun(runId) {
+    if (state.busy) return;
     state.view = 'run';
     state.currentRun = null;
     state.search = '';
+    state.busy = !state.demo;
+    state.busyMessage = 'Loading the authoritative run record…';
     render();
     if (state.demo) {
       state.currentRun = demoRuns.find((run) => run.run_id === runId) || null;
@@ -441,30 +370,72 @@
       return;
     }
     if (!state.connected) {
-      toast('Connect with the same API key that created this run to fetch its record.', 'error');
+      state.busy = false;
+      state.busyMessage = '';
+      render();
+      toast('The server-side API proxy is not connected. Check its settings before fetching live run data.', 'error');
       return;
     }
     try {
-      const { data } = await apiRequest(`/v1/runs/${encodeURIComponent(runId)}`);
-      state.currentRun = data;
-      saveRecentRun(data);
-      render();
+      await fetchRunUntilTerminal(runId);
     } catch (error) {
       state.currentRun = null;
-      render();
       toast(error.message, 'error');
+    } finally {
+      state.busy = false;
+      state.busyMessage = '';
+      render();
     }
   }
 
   function randomIdempotencyKey() {
     if (globalThis.crypto?.randomUUID) return crypto.randomUUID();
+    if (!globalThis.crypto?.getRandomValues) throw new Error('Secure UUID generation is unavailable in this browser. Open Abacus on localhost or HTTPS.');
     const bytes = new Uint8Array(16);
     crypto.getRandomValues(bytes);
-    return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+    bytes[6] = (bytes[6] & 0x0f) | 0x40;
+    bytes[8] = (bytes[8] & 0x3f) | 0x80;
+    const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('');
+    return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
   }
 
-  function wait(ms) { return new Promise((resolve) => window.setTimeout(resolve, ms)); }
-  const retryDelay = (seconds) => Math.min(10, Math.max(1, Number(seconds) || 1)) * 1000;
+  function wait(ms) {
+    return new Promise((resolve) => {
+      const waitChunk = (remaining) => {
+        const chunk = Math.min(remaining, 2147483647);
+        window.setTimeout(() => remaining > chunk ? waitChunk(remaining - chunk) : resolve(), chunk);
+      };
+      waitChunk(Math.max(0, ms));
+    });
+  }
+  function retryAfterSeconds(value) {
+    if (value == null || value === '') return 1;
+    const seconds = Number(value);
+    if (Number.isFinite(seconds) && seconds >= 0) return Math.max(1, Math.ceil(seconds));
+    const date = Date.parse(value);
+    return Number.isNaN(date) ? 1 : Math.max(1, Math.ceil((date - Date.now()) / 1000));
+  }
+  const retryDelay = (seconds) => Math.max(1, Number(seconds) || 1) * 1000;
+
+  async function fetchRunUntilTerminal(runId) {
+    while (true) {
+      const result = await apiRequest(`/ui-api/v1/runs/${encodeURIComponent(runId)}`);
+      const run = result.data;
+      state.currentRun = run;
+      saveRecentRun(run);
+      if (!['queued', 'running'].includes(run.state)) {
+        state.nextPollAt = 0;
+        render();
+        return run;
+      }
+      const delay = retryDelay(retryAfterSeconds(result.response.headers.get('Retry-After')));
+      state.nextPollAt = Date.now() + delay;
+      state.busy = true;
+      state.busyMessage = run.state === 'queued' ? 'Waiting for the worker…' : 'Checking the evaluation…';
+      render();
+      await wait(delay);
+    }
+  }
 
   async function submitRun() {
     if (state.busy) return;
@@ -484,33 +455,18 @@
       return;
     }
     try {
-      const { response, data } = await apiRequest('/v1/runs', {
+      const { data } = await apiRequest('/ui-api/v1/runs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Idempotency-Key': randomIdempotencyKey() },
         body: JSON.stringify({ problem_id: selected }),
       });
       if (!data?.run_id) throw new Error('The API accepted the request but did not return a run ID.');
-      let latest = data;
       const runId = data.run_id;
-      saveRecentRun(latest);
       state.view = 'run';
-      state.currentRun = latest;
+      state.currentRun = data;
       state.busyMessage = 'Fetching the authoritative run record…';
       render();
-      let delay = retryDelay(response.headers.get('Retry-After'));
-      const start = Date.now();
-      while (Date.now() - start < 120000) {
-        const result = await apiRequest(`/v1/runs/${encodeURIComponent(runId)}`);
-        latest = result.data;
-        state.currentRun = latest;
-        saveRecentRun(latest);
-        if (!['queued', 'running'].includes(latest.state)) break;
-        state.busyMessage = latest.state === 'queued' ? 'Waiting for the worker…' : 'Checking the evaluation…';
-        render();
-        await wait(delay);
-        delay = retryDelay(result.response.headers.get('Retry-After'));
-      }
-      state.currentRun = latest;
+      await fetchRunUntilTerminal(runId);
       state.busy = false;
       state.busyMessage = '';
       render();
@@ -518,7 +474,7 @@
       state.busy = false;
       state.busyMessage = '';
       state.error = error.message;
-      state.retryAvailable = error.status === 503;
+      state.retryAvailable = error.status === 503 || error.status === 429;
       state.retryAfter = error.retryAfter || 1;
       if (state.view === 'run' && state.currentRun) {
         render();
@@ -532,40 +488,26 @@
 
   async function refreshCurrentRun() {
     if (state.demo || !state.connected || !state.currentRun) return;
+    state.busy = true;
+    state.busyMessage = 'Refreshing the authoritative run record…';
     try {
-      const { data } = await apiRequest(`/v1/runs/${encodeURIComponent(state.currentRun.run_id)}`);
-      state.currentRun = data;
-      saveRecentRun(data);
-      render();
+      if (state.nextPollAt > Date.now()) {
+        state.busyMessage = 'Waiting for the API Retry-After interval…';
+        render();
+        await wait(state.nextPollAt - Date.now());
+      }
+      await fetchRunUntilTerminal(state.currentRun.run_id);
     } catch (error) { toast(error.message, 'error'); }
-  }
-
-  function disconnect() {
-    state.apiKey = '';
-    state.connected = false;
-    state.localAutoAuth = false;
-    state.localAutoAuthDisabled = true;
-    state.demo = false;
-    state.clients = null;
-    state.metrics = null;
-    state.adminAllowed = false;
-    state.adminForbidden = false;
-    state.error = '';
-    state.problems = [...builtInProblems];
-    state.apiReady = null;
-    render();
-    toast('Disconnected; any in-memory key was cleared.');
+    finally { state.busy = false; state.busyMessage = ''; render(); }
   }
 
   function enterDemo() {
-    state.apiKey = '';
     state.connected = false;
-    state.localAutoAuth = false;
     state.demo = true;
     state.apiReady = null;
     state.clients = null;
     state.adminAllowed = false;
-    state.metrics = null;
+    state.connectionError = '';
     state.problems = [...builtInProblems];
     state.search = '';
     state.error = '';
@@ -608,15 +550,10 @@
     } else if (action === 'refresh-health') {
       if (state.demo) {
         toast('Demo mode shows sample status only; no API request was made.');
-      } else if (state.connected) {
-        try {
-          const health = await fetch(`${getBase()}/health/ready`, { cache: 'no-store' });
-          state.apiReady = health.ok;
-          if (!health.ok) toast('The API is not ready. Check its database and service status.', 'error');
-          else { await loadMetrics(); toast('API readiness refreshed.'); }
-        } catch { state.apiReady = false; toast('The API could not be reached.', 'error'); }
-        render();
-      } else checkPublicHealth();
+      } else {
+        await checkApiConnection();
+        if (state.connected) toast('The server-side API proxy and backend are ready.');
+      }
     } else if (action === 'choose-problem') {
       state.selectedProblem = actionButton.dataset.problem;
       state.view = 'new';
@@ -634,8 +571,6 @@
       await refreshCurrentRun();
     } else if (action === 'refresh-admin') {
       await loadAdmin();
-    } else if (action === 'disconnect') {
-      disconnect();
     } else if (action === 'demo') {
       enterDemo();
     } else if (action === 'exit-demo') {
@@ -643,16 +578,9 @@
       state.view = 'overview';
       state.currentRun = null;
       render();
-      checkPublicHealth();
+      checkApiConnection();
     } else if (action === 'copy') {
       await copyText(actionButton.dataset.copy || '');
-    }
-  });
-
-  document.addEventListener('submit', async (event) => {
-    if (event.target.id === 'connection-form') {
-      event.preventDefault();
-      await connect(event.target);
     }
   });
 
