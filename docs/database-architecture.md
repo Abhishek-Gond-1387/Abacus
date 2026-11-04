@@ -64,6 +64,8 @@ Alembic revision `0001_relational_run_store` creates the constrained schema. On 
 
 The API applies pending migrations during startup before accepting requests. This deployment currently runs one API process in Compose. Schema changes after this baseline must be added as new reviewed Alembic revisions; do not edit an already-applied revision. Back up the PostgreSQL volume before applying a release migration.
 
+`practice/test_postgres_integration.py` exercises migrations, PostgreSQL-native UUID/JSONB types, foreign-key/check constraints, concurrent idempotency, and a real API evaluation against a live PostgreSQL server. GitHub Actions starts PostgreSQL 17 as a service and runs this suite separately from the SQLite regression matrix. For a local server, set `ABACUS_TEST_POSTGRES_URL` to a disposable database URL and run `python -m unittest practice.test_postgres_integration -v`.
+
 ## Future tenant-aware idempotency
 
 The current service has one shared API key, so the idempotency digest is globally unique. When API clients gain separate identities, add a `principals`/`api_clients` table and change the unique key to `(principal_id, idempotency_hash)` in a migration. This allows the same caller key from different clients without allowing duplicate work within one client.
