@@ -125,13 +125,16 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
                 text(
                     "SELECT format("
                     "'CREATE ROLE %I LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE', "
-                    ":role, :password)"
+                    "CAST(:role AS text), CAST(:password AS text))"
                 ),
                 {"role": role, "password": password},
             ).scalar_one()
             connection.exec_driver_sql(create_role)
             create_schema = connection.execute(
-                text("SELECT format('CREATE SCHEMA %I AUTHORIZATION %I', :schema, :role)"),
+                text(
+                    "SELECT format('CREATE SCHEMA %I AUTHORIZATION %I', "
+                    "CAST(:schema AS text), CAST(:role AS text))"
+                ),
                 {"schema": schema, "role": role},
             ).scalar_one()
             connection.exec_driver_sql(create_schema)
@@ -157,12 +160,17 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             runtime_store.close()
             with self.store.engine.begin() as connection:
                 drop_schema = connection.execute(
-                    text("SELECT format('DROP SCHEMA IF EXISTS %I CASCADE', :schema)"),
+                    text(
+                        "SELECT format('DROP SCHEMA IF EXISTS %I CASCADE', "
+                        "CAST(:schema AS text))"
+                    ),
                     {"schema": schema},
                 ).scalar_one()
                 connection.exec_driver_sql(drop_schema)
                 drop_role = connection.execute(
-                    text("SELECT format('DROP ROLE IF EXISTS %I', :role)"),
+                    text(
+                        "SELECT format('DROP ROLE IF EXISTS %I', CAST(:role AS text))"
+                    ),
                     {"role": role},
                 ).scalar_one()
                 connection.exec_driver_sql(drop_role)
