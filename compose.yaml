@@ -14,6 +14,21 @@ services:
       timeout: 5s
       retries: 5
 
+  db-bootstrap:
+    image: postgres:17-alpine
+    restart: "no"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGDATABASE: abacus
+      DB_PASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env.api}
+      ABACUS_APP_PASSWORD: ${ABACUS_APP_PASSWORD:?Set ABACUS_APP_PASSWORD in .env.api}
+    volumes:
+      - ./db/bootstrap-app-role.sh:/bootstrap-app-role.sh:ro
+    entrypoint: ["/bin/sh", "/bootstrap-app-role.sh"]
+
   abacus-api:
     build: .
     restart: unless-stopped
@@ -28,12 +43,15 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      db-bootstrap:
+        condition: service_completed_successfully
     ports:
       - "127.0.0.1:${ABACUS_PORT:-8000}:8000"
     environment:
       ABACUS_API_KEY: ${ABACUS_API_KEY:-}
       ABACUS_CLIENT_API_KEYS: ${ABACUS_CLIENT_API_KEYS:-}
-      ABACUS_DATABASE_URL: "postgresql+psycopg://abacus:${DB_PASSWORD:?Set DB_PASSWORD in .env.api}@postgres:5432/abacus"
+      ABACUS_DATABASE_URL: >-
+        postgresql+psycopg://abacus_app:${ABACUS_APP_PASSWORD:?Required in .env.api}@postgres:5432/abacus
       ABACUS_DATA_DIR: /data
       ABACUS_RUNS_DIR: /data/runs
       ABACUS_RUN_MODE: queue
@@ -65,7 +83,8 @@ services:
       abacus-api:
         condition: service_healthy
     environment:
-      ABACUS_DATABASE_URL: "postgresql+psycopg://abacus:${DB_PASSWORD:?Set DB_PASSWORD in .env.api}@postgres:5432/abacus"
+      ABACUS_DATABASE_URL: >-
+        postgresql+psycopg://abacus_app:${ABACUS_APP_PASSWORD:?Required in .env.api}@postgres:5432/abacus
       ABACUS_DATA_DIR: /data
       ABACUS_RUNS_DIR: /data/runs
       ABACUS_WORKER_POLL_SECONDS: ${ABACUS_WORKER_POLL_SECONDS:-1}
@@ -92,8 +111,8 @@ services:
     environment:
       PGHOST: postgres
       PGDATABASE: abacus
-      PGUSER: abacus
-      PGPASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env.api}
+      PGUSER: abacus_app
+      PGPASSWORD: ${ABACUS_APP_PASSWORD:?Set ABACUS_APP_PASSWORD in .env.api}
       BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-86400}
       BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
     volumes:
@@ -112,7 +131,62 @@ services:
           sleep "$${BACKUP_INTERVAL_SECONDS}"
         done
 
+  abacus-proxy:
+    image: caddy:2.10-alpine
+    profiles: ["production"]
+    restart: unless-stopped
+    init: true
+    depends_on:
+      abacus-api:
+        condition: service_healthy
+    environment:
+      ABACUS_DOMAIN: ${ABACUS_DOMAIN:-}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - >-
+        test -n "$$ABACUS_DOMAIN" || { echo "Set ABACUS_DOMAIN in .env.api first" >&2; exit 1; };
+        exec caddy run --config /etc/caddy/Caddyfile --adapter caddyfile
+
+  s3-backup-uploader:
+    build:
+      context: .
+      dockerfile: Dockerfile.backup-uploader
+    profiles: ["offsite-backup"]
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      database-backup:
+        condition: service_started
+    environment:
+      AWS_REGION: ${AWS_REGION:-}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
+      AWS_EC2_METADATA_DISABLED: "true"
+      S3_BACKUP_URI: ${S3_BACKUP_URI:-}
+      S3_KMS_KEY_ID: ${S3_KMS_KEY_ID:-}
+      S3_BACKUP_INTERVAL_SECONDS: ${S3_BACKUP_INTERVAL_SECONDS:-300}
+    volumes:
+      - postgres-backups:/backups:ro
+    command: ["python", "/app/s3_backup_uploader.py"]
+
 volumes:
   abacus-data:
   postgres-data:
   postgres-backups:
+  caddy-data:
+  caddy-config:

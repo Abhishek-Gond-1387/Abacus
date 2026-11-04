@@ -36,7 +36,7 @@ The regression suite and seed-problem runs work without `.env`, provider credent
 
 ## Backend API (FastAPI + PostgreSQL)
 
-The HTTP service exposes the checked-in sorting problems and runs the same local evaluation pipeline as the CLI. It does not accept uploaded Python code or arbitrary problem files. Protected routes require an `X-API-Key` with at least 32 characters. Configure one legacy key with `ABACUS_API_KEY`, or multiple named clients with `ABACUS_CLIENT_API_KEYS` as a JSON object. Each run submission also requires an `Idempotency-Key`; the key is scoped to its client, so clients do not collide or see each other's runs. Docker Compose runs PostgreSQL; local development defaults to SQLite. See the [database architecture](docs/database-architecture.md) for tables, constraints, transactions, and migration details.
+The HTTP service exposes the checked-in sorting problems and runs the same local evaluation pipeline as the CLI. It does not accept uploaded Python code or arbitrary problem files. Protected routes require an `X-API-Key` with at least 32 characters. Configure one legacy key with `ABACUS_API_KEY`, or named clients with `ABACUS_CLIENT_API_KEYS`; named clients can have `admin` or `member` roles plus daily and concurrent run limits. Each run submission also requires an `Idempotency-Key`; the key is scoped to its client, so clients do not collide or see each other's runs. Docker Compose runs PostgreSQL with a separate least-privilege application role; local development defaults to SQLite. See the [database architecture](docs/database-architecture.md) for tables, constraints, transactions, and migration details.
 
 | Route | Access | Purpose |
 | --- | --- | --- |
@@ -45,14 +45,17 @@ The HTTP service exposes the checked-in sorting problems and runs the same local
 | `GET /v1/problems` | API key | List the supported seed problems |
 | `POST /v1/runs` | API key + idempotency key | Queue an evaluation (`202 Accepted`) |
 | `GET /v1/runs/{run_id}` | API key | Read a saved run and its evidence |
-| `GET /metrics` | API key | Process-local Prometheus counters |
+| `GET /v1/admin/clients` | Admin API key | Client roles, quotas, and usage |
+| `GET /metrics` | API key | Persistent Prometheus counters |
 
 ### Run with Docker Compose
 
-Install Docker Desktop, then run these commands from the repository root in PowerShell. The API binds to `127.0.0.1:8000` by default, starts PostgreSQL on the private Compose network, applies Alembic migrations before accepting requests, and sends queued work to a separate leased worker. A backup service writes daily PostgreSQL archives to a separate named volume and retains the latest 14 days by default.
+Install Docker Desktop, then run these commands from the repository root in PowerShell. The API binds to `127.0.0.1:8000` by default. PostgreSQL stays on the private Compose network; a one-shot bootstrap gives the runtime role ownership of the application schema, and the API applies Alembic migrations as that non-superuser role before accepting requests. Queued work runs in a separate leased worker. A backup service writes validated daily PostgreSQL archives to a separate named volume and retains the latest 14 days by default.
+
+For an existing deployment, keep its current `DB_PASSWORD`, add a new unique `ABACUS_APP_PASSWORD` to `.env.api`, then run Compose as usual. The bootstrap updates the application login and transfers the existing public schema objects to it; it does not recreate the PostgreSQL data volume.
 
 ```powershell
-python -c "import pathlib,secrets; p=pathlib.Path('.env.api'); p.write_text('ABACUS_API_KEY=' + secrets.token_urlsafe(48) + '\nDB_PASSWORD=' + secrets.token_urlsafe(36) + '\nABACUS_PORT=8000\n', encoding='utf-8')"
+python -c "import pathlib,secrets; p=pathlib.Path('.env.api'); p.write_text('ABACUS_API_KEY=' + secrets.token_urlsafe(48) + '\nDB_PASSWORD=' + secrets.token_urlsafe(36) + '\nABACUS_APP_PASSWORD=' + secrets.token_urlsafe(36) + '\nABACUS_PORT=8000\n', encoding='utf-8')"
 docker compose --env-file .env.api up --build -d
 docker compose --env-file .env.api ps
 Invoke-RestMethod http://127.0.0.1:8000/health/ready
@@ -76,13 +79,25 @@ while ($run.state -in @("queued", "running")) {
 $run
 ```
 
-Stop the service with `docker compose --env-file .env.api down`; keep the named `postgres-data`, `postgres-backups`, and `abacus-data` volumes. To bind a different local port, set `ABACUS_PORT=8001` in `.env.api`. Scale workers with `docker compose --env-file .env.api up -d --scale abacus-worker=3`. Each worker claims jobs with a database lease, renews the lease while running, and requeues expired jobs up to three attempts. Put TLS and any public network exposure behind a properly configured reverse proxy; web accounts, role-based administration, quotas, and cloud deployment remain out of scope.
+Stop the service with `docker compose --env-file .env.api down`; keep the named `postgres-data`, `postgres-backups`, and `abacus-data` volumes. To bind a different local port, set `ABACUS_PORT=8001` in `.env.api`. Scale workers with `docker compose --env-file .env.api up -d --scale abacus-worker=3`. Each worker claims jobs with a database lease, renews the lease while running, and requeues expired jobs up to three attempts. The HTTPS proxy and S3 uploader below are opt-in because they require a domain and cloud credentials.
 
-To configure separate API clients, set `ABACUS_CLIENT_API_KEYS` in `.env.api` to a single-quoted JSON mapping of client IDs to unique random secrets (each at least 32 characters), for example `ABACUS_CLIENT_API_KEYS='{"default":"<random-secret>","client-two":"<another-random-secret>"}'`. This replaces the legacy `ABACUS_API_KEY` setting. Client secrets are read from environment configuration and are never written to PostgreSQL. Keep the `default` client ID if existing runs should remain readable after upgrading.
+To configure separate API clients, set `ABACUS_CLIENT_API_KEYS` in `.env.api` to a single-quoted JSON mapping. Each value can be a legacy secret string (admin role, 100 runs/day, 3 active runs) or a policy object:
+
+```powershell
+ABACUS_CLIENT_API_KEYS='{"default":{"api_key":"<random-secret>","role":"admin","daily_run_limit":100,"max_active_runs":3},"client-two":{"api_key":"<another-secret>","role":"member","daily_run_limit":25,"max_active_runs":2}}'
+```
+
+Keys must be unique and at least 32 characters. Client secrets stay in environment configuration; PostgreSQL stores only client IDs, role, and limits. Keep the `default` client ID if existing runs should remain readable after upgrading. A client can inspect client roles and current usage at `GET /v1/admin/clients` only when its configured role is `admin`. Change policies in `.env.api` and recreate the API to apply them.
 
 ### PostgreSQL backup and restore
 
-The Compose backup service creates a custom-format dump immediately after the API has applied migrations, repeats it every 24 hours, validates each archive, and prunes archives older than 14 days. Both interval and retention can be changed with `BACKUP_INTERVAL_SECONDS` and `BACKUP_RETENTION_DAYS` in `.env.api`. Backups are on the separate `postgres-backups` Docker volume; copy important archives off the Docker host and encrypt them according to your storage policy.
+The Compose backup service creates a custom-format dump immediately after the API has applied migrations, repeats it every 24 hours, validates each archive, and prunes archives older than 14 days. Both interval and retention can be changed with `BACKUP_INTERVAL_SECONDS` and `BACKUP_RETENTION_DAYS` in `.env.api`. Backups are on the separate `postgres-backups` Docker volume. To send completed archives to AWS S3 encrypted with a customer-managed KMS key, configure `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `S3_BACKUP_URI`, and `S3_KMS_KEY_ID` in `.env.api`, then start the optional uploader with:
+
+```powershell
+docker compose --env-file .env.api --profile offsite-backup up -d s3-backup-uploader
+```
+
+The uploader reads only final `.dump` files, verifies SHA-256 metadata to avoid repeat uploads, does not delete remote objects, and uses SSE-KMS. Give its dedicated AWS identity only the bucket/prefix listing and object read/write access plus KMS key permissions needed to upload and restore (`kms:GenerateDataKey` and `kms:Decrypt` for multipart uploads). Keep the KMS key in the bucket's AWS region. Set bucket lifecycle/versioning and test restores as part of your retention policy. AWS key values stay in the ignored `.env.api` file. See AWS's [SSE-KMS permissions and region requirements](https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingKMSEncryption.html).
 
 List and copy an archive to the host:
 
@@ -98,7 +113,7 @@ Before a release that changes the schema, take a manual snapshot, then deploy:
 $stamp = Get-Date -AsUTC -Format yyyyMMddTHHmmssZ
 docker compose --env-file .env.api stop abacus-api abacus-worker database-backup
 docker compose --env-file .env.api run --rm --no-deps --entrypoint pg_dump database-backup `
-    --format=custom --no-owner --no-acl --host=postgres --username=abacus `
+    --format=custom --no-owner --no-acl --host=postgres --username=abacus_app `
     --dbname=abacus --file="/backups/pre-migration-$stamp.dump"
 docker compose --env-file .env.api up --build -d
 ```
@@ -107,15 +122,24 @@ Restore replaces the database contents. Stop the API, workers, and scheduled bac
 
 ```powershell
 docker compose --env-file .env.api stop abacus-api abacus-worker database-backup
-docker compose --env-file .env.api run --rm --no-deps --entrypoint dropdb database-backup `
-    --if-exists --force --host=postgres --username=abacus abacus
-docker compose --env-file .env.api run --rm --no-deps --entrypoint createdb database-backup `
-    --host=postgres --username=abacus --owner=abacus abacus
+docker compose --env-file .env.api run --rm --no-deps --entrypoint psql database-backup `
+    --set=ON_ERROR_STOP=1 --host=postgres --username=abacus_app --dbname=abacus `
+    --command "DROP SCHEMA public CASCADE; CREATE SCHEMA public AUTHORIZATION abacus_app;"
 docker compose --env-file .env.api run --rm --no-deps --entrypoint pg_restore database-backup `
-    --no-owner --no-acl --host=postgres --username=abacus --dbname=abacus `
+    --no-owner --no-acl --host=postgres --username=abacus_app --dbname=abacus `
     /backups/<archive-name>.dump
 docker compose --env-file .env.api up -d abacus-api abacus-worker database-backup
 ```
+
+### Optional HTTPS reverse proxy
+
+After `ABACUS_DOMAIN` has an A/AAAA record pointing to the host and inbound ports 80/443 are open, add `ABACUS_DOMAIN=api.example.com` to `.env.api` and run:
+
+```powershell
+docker compose --env-file .env.api --profile production up --build -d
+```
+
+Caddy obtains and renews the certificate automatically and proxies HTTPS traffic to the API. Keep the API's `127.0.0.1` port binding; the proxy reaches the API on the private Compose network. The Caddy certificate state stays in named volumes. Without a domain, keep the profile disabled and use the local loopback endpoint.
 
 For local development without Docker, set `ABACUS_API_KEY` to a random secret of at least 32 characters, start the API in inline mode, or set `ABACUS_RUN_MODE=queue` and start `python -m abacus.worker` separately. The API creates/updates the local SQLite schema through Alembic at startup; set `ABACUS_DATABASE_URL` to a PostgreSQL URL to use PostgreSQL instead.
 
@@ -520,20 +544,20 @@ The GitHub Actions matrix runs the same regression suite on both `ubuntu-24.04` 
 
 ## Day 47 GitHub YAML linting
 
-The CI job runs strict `yamllint` checks on the workflow and Dependabot configuration before the regression suite. Its CI-only pinned linter requirement and the `.yamllint` config are shared by local and GitHub checks. From the repository root, run:
+The CI job runs strict `yamllint` checks on the workflow, Dependabot configuration, and Compose deployment file before the regression suite. Its CI-only pinned linter requirement and the `.yamllint` config are shared by local and GitHub checks. From the repository root, run:
 
 ```powershell
 $env:PYYAML_FORCE_LIBYAML = "0"
 .\.venv\Scripts\python.exe -m pip install -r requirements-ci.txt
 Remove-Item Env:PYYAML_FORCE_LIBYAML
-.\.venv\Scripts\yamllint.exe --strict .github\workflows\ci.yml .github\dependabot.yml
+.\.venv\Scripts\yamllint.exe --strict .github\workflows\ci.yml .github\dependabot.yml compose.yaml
 ```
 
 The environment setting makes PyYAML use its pure-Python parser when installing the linter under Python 3.15, avoiding a local C++ compiler requirement. It is only needed for this optional lint install; normal runtime and dev requirements do not include PyYAML.
 
 ## Day 48 cross-platform YAML line endings
 
-`.gitattributes` pins `.yml` files to LF so Windows checkouts do not convert GitHub Actions and Dependabot configuration files to CRLF. The strict YAML linter checks both files on every CI matrix job.
+`.gitattributes` pins `.yml` and `.yaml` files to LF so Windows checkouts do not convert YAML configuration to CRLF. The strict YAML linter checks all three YAML files on every CI matrix job.
 
 ## Day 49 explicit hosted-provider client
 

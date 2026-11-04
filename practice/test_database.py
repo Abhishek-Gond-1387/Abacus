@@ -18,8 +18,8 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.schema import CreateTable
 
-from abacus.api_store import RunStore
-from abacus.database import ApiRun, Problem
+from abacus.api_store import RunQuotaExceeded, RunStore
+from abacus.database import ApiClient, ApiRun, Problem
 
 
 def _now() -> str:
@@ -194,6 +194,82 @@ class DatabaseIntegrityTests(unittest.TestCase):
         )
         self.assertEqual(self.store.get_run(run_id)["state"], "finished")
 
+    def test_client_quotas_are_enforced_and_idempotent_retries_are_free(self) -> None:
+        now = datetime(2026, 2, 2, 12, tzinfo=timezone.utc)
+        self.store.sync_clients({"limited": {
+            "role": "member", "daily_run_limit": 2, "max_active_runs": 1,
+        }}, now=now)
+        first, created = self.store.reserve_run(
+            run_id=str(uuid4()),
+            client_id="limited",
+            problem_id="p01_true_sort",
+            idempotency_hash=_idempotency_hash("limited-one"),
+            now=now,
+        )
+        self.assertTrue(created)
+
+        retry, retry_created = self.store.reserve_run(
+            run_id=str(uuid4()),
+            client_id="limited",
+            problem_id="p01_true_sort",
+            idempotency_hash=_idempotency_hash("limited-one"),
+            now=now,
+        )
+        self.assertFalse(retry_created)
+        self.assertEqual(retry["run_id"], first["run_id"])
+
+        with self.assertRaisesRegex(RunQuotaExceeded, "max_active_runs"):
+            self.store.reserve_run(
+                run_id=str(uuid4()), client_id="limited", problem_id="p01_true_sort",
+                idempotency_hash=_idempotency_hash("limited-two"), now=now,
+            )
+
+        lease = self.store.mark_running(first["run_id"], now=now)
+        self.store.finish_run(first["run_id"], {
+            "run_id": first["run_id"], "run_status": "complete",
+            "outcome": {"outcome": "TESTS_PASSED"},
+        }, now=now, lease_token=lease)
+        second, second_created = self.store.reserve_run(
+            run_id=str(uuid4()), client_id="limited", problem_id="p01_true_sort",
+            idempotency_hash=_idempotency_hash("limited-two"), now=now,
+        )
+        self.assertTrue(second_created)
+        self.assertEqual(second["state"], "queued")
+        with self.assertRaisesRegex(RunQuotaExceeded, "daily_run_limit"):
+            self.store.reserve_run(
+                run_id=str(uuid4()), client_id="limited", problem_id="p01_true_sort",
+                idempotency_hash=_idempotency_hash("limited-three"), now=now,
+            )
+
+    def test_http_metrics_are_durable_and_aggregated(self) -> None:
+        self.store.record_http_request(
+            status_code=200, duration_seconds=0.125, now=datetime(2026, 2, 2, tzinfo=timezone.utc),
+        )
+        self.store.record_http_request(
+            status_code=404, duration_seconds=0.5, now=datetime(2026, 2, 2, tzinfo=timezone.utc),
+        )
+        self.store.record_http_request(
+            status_code=503, duration_seconds=0.375, now=datetime(2026, 2, 3, tzinfo=timezone.utc),
+        )
+        self.assertEqual(self.store.get_http_metrics(), {
+            "requests_total": 3,
+            "requests_4xx_total": 1,
+            "requests_5xx_total": 1,
+            "request_duration_seconds_sum": 1.0,
+        })
+        self.store.close()
+        restarted = RunStore(self.database_path)
+        try:
+            restarted.initialize()
+            self.assertEqual(restarted.get_http_metrics(), {
+                "requests_total": 3,
+                "requests_4xx_total": 1,
+                "requests_5xx_total": 1,
+                "request_duration_seconds_sum": 1.0,
+            })
+        finally:
+            restarted.close()
+
     def test_foreign_key_and_lifecycle_checks_reject_anomalous_rows(self) -> None:
         with self.assertRaises(IntegrityError):
             self.store.reserve_run(
@@ -237,6 +313,22 @@ class DatabaseIntegrityTests(unittest.TestCase):
                     ApiRun.__table__.update()
                     .where(ApiRun.run_id == UUID(run_id))
                     .values(updated_at_utc=datetime(2025, 12, 31, tzinfo=timezone.utc))
+                )
+
+    def test_database_rejects_invalid_client_roles_and_quotas(self) -> None:
+        with self.assertRaises(IntegrityError):
+            with self.store.engine.begin() as connection:
+                connection.execute(
+                    ApiClient.__table__.update()
+                    .where(ApiClient.client_id == "default")
+                    .values(role="owner")
+                )
+        with self.assertRaises(IntegrityError):
+            with self.store.engine.begin() as connection:
+                connection.execute(
+                    ApiClient.__table__.update()
+                    .where(ApiClient.client_id == "default")
+                    .values(daily_run_limit=0)
                 )
 
     def test_postgresql_schema_uses_native_uuid_jsonb_and_constraints(self) -> None:

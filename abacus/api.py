@@ -22,7 +22,7 @@ from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.exc import SQLAlchemyError
 
-from abacus.api_store import RunStore
+from abacus.api_store import RunQuotaExceeded, RunStore
 from abacus.cli import run_problem
 from abacus.database import default_database_url, sqlite_url
 from abacus.schemas import ProblemSpec, ProblemValidationError, load_problem
@@ -56,10 +56,13 @@ def _utc_text(value: datetime | None = None) -> str:
 
 def _configured_client_keys(
     api_key_reader: Callable[[], str] | None,
-) -> dict[str, str]:
-    """Read client secrets from environment config; secrets never enter the database."""
+) -> dict[str, dict[str, Any]]:
+    """Read client secrets and nonsecret policies; secrets never enter the database."""
     if api_key_reader is not None:
-        return {"default": api_key_reader()}
+        return {"default": {
+            "api_key": api_key_reader(), "role": "admin",
+            "daily_run_limit": 100, "max_active_runs": 3,
+        }}
     encoded = os.getenv("ABACUS_CLIENT_API_KEYS", "").strip()
     if encoded:
         def reject_duplicate_ids(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
@@ -76,18 +79,49 @@ def _configured_client_keys(
             raise ValueError("ABACUS_CLIENT_API_KEYS must be a JSON object.") from error
         if type(mapping) is not dict or not mapping:
             raise ValueError("ABACUS_CLIENT_API_KEYS must be a non-empty JSON object.")
-        if any(
-            type(client_id) is not str
-            or not CLIENT_ID_PATTERN.fullmatch(client_id)
-            or type(secret) is not str
-            for client_id, secret in mapping.items()
-        ):
-            raise ValueError("Client IDs and API keys in ABACUS_CLIENT_API_KEYS are invalid.")
-        usable = [secret for secret in mapping.values() if len(secret) >= 32]
-        if len(usable) != len(mapping) or len(set(usable)) != len(usable):
+        policies: dict[str, dict[str, Any]] = {}
+        for client_id, configured in mapping.items():
+            if type(client_id) is not str or not CLIENT_ID_PATTERN.fullmatch(client_id):
+                raise ValueError("Client IDs in ABACUS_CLIENT_API_KEYS are invalid.")
+            if type(configured) is str:
+                policy = {
+                    "api_key": configured,
+                    "role": "admin",
+                    "daily_run_limit": 100,
+                    "max_active_runs": 3,
+                }
+            elif type(configured) is dict and set(configured).issubset({
+                "api_key", "role", "daily_run_limit", "max_active_runs",
+            }):
+                policy = {
+                    "api_key": configured.get("api_key"),
+                    "role": configured.get("role", "member"),
+                    "daily_run_limit": configured.get("daily_run_limit", 100),
+                    "max_active_runs": configured.get("max_active_runs", 3),
+                }
+            else:
+                raise ValueError("Each client must be an API key string or a valid policy object.")
+            if (
+                type(policy["api_key"]) is not str
+                or type(policy["role"]) is not str
+                or policy["role"] not in {"admin", "member"}
+                or type(policy["daily_run_limit"]) is not int
+                or not 1 <= policy["daily_run_limit"] <= 1_000_000
+                or type(policy["max_active_runs"]) is not int
+                or not 1 <= policy["max_active_runs"] <= 10_000
+            ):
+                raise ValueError("Client role and quotas in ABACUS_CLIENT_API_KEYS are invalid.")
+            policies[client_id] = policy
+        usable = [policy["api_key"] for policy in policies.values() if len(policy["api_key"]) >= 32]
+        if len(usable) != len(policies) or len(set(usable)) != len(usable):
             raise ValueError("Each configured client API key must be unique and at least 32 characters.")
-        return mapping
-    return {"default": os.getenv("ABACUS_API_KEY", "")}
+        return policies
+    return {"default": {
+        "api_key": os.getenv("ABACUS_API_KEY", ""),
+        "role": "admin",
+        "daily_run_limit": 100,
+        "max_active_runs": 3,
+    }}
 
 
 def _request_log(
@@ -174,23 +208,24 @@ def create_app(
     runs_dir = runs_dir.resolve()
     store = RunStore(configured_database_url)
     client_api_keys = _configured_client_keys(api_key_reader)
-    api_key_clients = {secret: client_id for client_id, secret in client_api_keys.items()}
+    api_key_clients = {
+        policy["api_key"]: client_id for client_id, policy in client_api_keys.items()
+    }
     run_mode = os.getenv("ABACUS_RUN_MODE", "inline").strip().lower()
     if run_mode not in {"inline", "queue"}:
         raise ValueError("ABACUS_RUN_MODE must be 'inline' or 'queue'.")
     run_semaphore = threading.BoundedSemaphore(value=1)
-    metrics_lock = threading.Lock()
-    metrics = {
-        "requests_total": 0,
-        "requests_4xx_total": 0,
-        "requests_5xx_total": 0,
-        "request_duration_seconds_sum": 0.0,
-    }
-
     @asynccontextmanager
     async def lifespan(application: FastAPI):
         store.initialize()
-        store.sync_clients(list(client_api_keys), now=_utc_now())
+        store.sync_clients({
+            client_id: {
+                "role": policy["role"],
+                "daily_run_limit": policy["daily_run_limit"],
+                "max_active_runs": policy["max_active_runs"],
+            }
+            for client_id, policy in client_api_keys.items()
+        }, now=_utc_now())
         store.sync_problems(list(PROBLEM_FILES), now=_utc_now())
         now = _utc_now()
         if run_mode == "queue":
@@ -219,8 +254,8 @@ def create_app(
     app.state.store = store
     app.state.runs_dir = runs_dir
 
-    def authenticated_client(api_key: str | None = Security(API_KEY_HEADER)) -> str:
-        if not any(len(secret) >= 32 for secret in client_api_keys.values()):
+    def authenticated_client(api_key: str | None = Security(API_KEY_HEADER)) -> dict[str, Any]:
+        if not any(len(policy["api_key"]) >= 32 for policy in client_api_keys.values()):
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="API authentication is not configured.",
@@ -228,8 +263,9 @@ def create_app(
         for configured_key, client_id in api_key_clients.items():
             try:
                 if api_key is not None and secrets.compare_digest(api_key, configured_key):
-                    if store.is_client_active(client_id):
-                        return client_id
+                    client = store.get_client(client_id)
+                    if client is not None and client["is_active"]:
+                        return client
                     break
             except TypeError:
                 continue
@@ -238,6 +274,11 @@ def create_app(
             detail="Invalid or missing API key.",
             headers={"WWW-Authenticate": "ApiKey"},
         )
+
+    def admin_client(client: dict[str, Any] = Depends(authenticated_client)) -> dict[str, Any]:
+        if client["role"] != "admin":
+            raise HTTPException(status_code=403, detail="Admin role required.")
+        return client
 
     @app.middleware("http")
     async def structured_request_logging(request: Request, call_next):
@@ -257,13 +298,17 @@ def create_app(
             return response
         finally:
             duration_seconds = time.perf_counter() - started
-            with metrics_lock:
-                metrics["requests_total"] += 1
-                if 400 <= response_status < 500:
-                    metrics["requests_4xx_total"] += 1
-                elif response_status >= 500:
-                    metrics["requests_5xx_total"] += 1
-                metrics["request_duration_seconds_sum"] += duration_seconds
+            try:
+                store.record_http_request(
+                    status_code=response_status,
+                    duration_seconds=duration_seconds,
+                    now=_utc_now(),
+                )
+            except SQLAlchemyError as error:
+                LOGGER.error(json.dumps({
+                    "event": "http_metric_write_failed",
+                    "error_type": type(error).__name__,
+                }, separators=(",", ":")))
             _request_log(
                 request_id=request_id,
                 method=request.method,
@@ -290,7 +335,7 @@ def create_app(
 
     @app.get("/health/ready", tags=["health"], response_model=None)
     def readiness() -> JSONResponse | dict[str, str]:
-        if not any(len(secret) >= 32 for secret in client_api_keys.values()):
+        if not any(len(policy["api_key"]) >= 32 for policy in client_api_keys.values()):
             return JSONResponse(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 content={"status": "not_ready"},
@@ -310,10 +355,9 @@ def create_app(
 
     @app.get("/metrics", include_in_schema=False, dependencies=[Depends(authenticated_client)])
     def prometheus_metrics() -> Response:
-        with metrics_lock:
-            snapshot = dict(metrics)
+        snapshot = store.get_http_metrics()
         body = "\n".join((
-            "# HELP abacus_http_requests_total Total HTTP requests served by this process.",
+            "# HELP abacus_http_requests_total Total HTTP requests recorded in durable storage.",
             "# TYPE abacus_http_requests_total counter",
             f"abacus_http_requests_total {snapshot['requests_total']}",
             "# HELP abacus_http_requests_4xx_total HTTP client-error responses.",
@@ -343,6 +387,13 @@ def create_app(
             })
         return problems
 
+    @app.get("/v1/admin/clients", tags=["admin"])
+    def list_api_clients(
+        _admin: dict[str, Any] = Depends(admin_client),
+    ) -> list[dict[str, Any]]:
+        """List client roles, limits, and current usage without exposing API keys."""
+        return store.list_clients(now=_utc_now())
+
     @app.post(
         "/v1/runs",
         status_code=status.HTTP_201_CREATED,
@@ -352,7 +403,7 @@ def create_app(
     def submit_run(
         payload: RunRequest,
         idempotency_key: str = Header(alias="Idempotency-Key"),
-        client_id: str = Depends(authenticated_client),
+        client: dict[str, Any] = Depends(authenticated_client),
     ) -> JSONResponse | dict[str, Any]:
         if not IDEMPOTENCY_PATTERN.fullmatch(idempotency_key):
             raise HTTPException(
@@ -362,13 +413,21 @@ def create_app(
         spec = _load_problem(payload.problem_id)
         idempotency_hash = hashlib.sha256(idempotency_key.encode("ascii")).hexdigest()
 
-        existing, created = store.reserve_run(
-            run_id=str(uuid4()),
-            client_id=client_id,
-            problem_id=spec.problem_id,
-            idempotency_hash=idempotency_hash,
-            now=_utc_text(),
-        )
+        client_id = client["client_id"]
+        try:
+            existing, created = store.reserve_run(
+                run_id=str(uuid4()),
+                client_id=client_id,
+                problem_id=spec.problem_id,
+                idempotency_hash=idempotency_hash,
+                now=_utc_text(),
+            )
+        except RunQuotaExceeded as error:
+            raise HTTPException(
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                detail={"code": error.reason},
+                headers={"Retry-After": str(error.retry_after)},
+            ) from error
         if not created:
             if existing["problem_id"] != spec.problem_id:
                 raise HTTPException(
@@ -434,7 +493,11 @@ def create_app(
             run_semaphore.release()
 
     @app.get("/v1/runs/{run_id}", tags=["runs"])
-    def get_run(run_id: UUID, client_id: str = Depends(authenticated_client)) -> dict[str, Any]:
+    def get_run(
+        run_id: UUID,
+        client: dict[str, Any] = Depends(authenticated_client),
+    ) -> dict[str, Any]:
+        client_id = client["client_id"]
         row = store.get_run(str(run_id), client_id=client_id)
         if row is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found.")

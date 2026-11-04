@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import json
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, time as datetime_time, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import select, update
+from sqlalchemy import case, func, select, update
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.engine import Engine
@@ -16,11 +16,21 @@ from sqlalchemy.engine import Engine
 from abacus.database import (
     ApiRun,
     ApiClient,
+    ApiDailyMetric,
     Problem,
     create_database_engine,
     database_session_factory,
     upgrade_database,
 )
+
+
+class RunQuotaExceeded(Exception):
+    """Raised when one client exceeds its persisted submission policy."""
+
+    def __init__(self, reason: str, retry_after: int) -> None:
+        super().__init__(reason)
+        self.reason = reason
+        self.retry_after = max(1, retry_after)
 
 
 class RunStore:
@@ -83,9 +93,14 @@ class RunStore:
     def close(self) -> None:
         self.engine.dispose()
 
-    def sync_clients(self, client_ids: list[str], *, now: str | datetime) -> None:
-        """Activate configured client identities while retaining historical foreign keys."""
-        identifiers = sorted(set(client_ids))
+    def sync_clients(
+        self,
+        client_policies: dict[str, dict[str, Any]],
+        *,
+        now: str | datetime,
+    ) -> None:
+        """Sync nonsecret client roles and limits while retaining historical foreign keys."""
+        identifiers = sorted(client_policies)
         if not identifiers or any(not value or len(value) > 64 for value in identifiers):
             raise ValueError("At least one valid API client ID is required.")
         timestamp = self._datetime(now)
@@ -94,16 +109,23 @@ class RunStore:
                 item.client_id: item for item in session.scalars(select(ApiClient)).all()
             }
             for client_id in identifiers:
+                policy = client_policies[client_id]
                 item = current.get(client_id)
                 if item is None:
                     session.add(ApiClient(
                         client_id=client_id,
                         is_active=True,
+                        role=policy["role"],
+                        daily_run_limit=policy["daily_run_limit"],
+                        max_active_runs=policy["max_active_runs"],
                         created_at_utc=timestamp,
                         updated_at_utc=timestamp,
                     ))
                 else:
                     item.is_active = True
+                    item.role = policy["role"]
+                    item.daily_run_limit = policy["daily_run_limit"]
+                    item.max_active_runs = policy["max_active_runs"]
                     item.updated_at_utc = timestamp
             inactive_ids = set(current) - set(identifiers)
             if inactive_ids:
@@ -123,6 +145,50 @@ class RunStore:
                 select(ApiClient.is_active).where(ApiClient.client_id == client_id)
             )
             return active is True
+
+    def get_client(self, client_id: str) -> dict[str, Any] | None:
+        with self._session_factory() as session:
+            item = session.get(ApiClient, client_id)
+            if item is None:
+                return None
+            return {
+                "client_id": item.client_id,
+                "is_active": item.is_active,
+                "role": item.role,
+                "daily_run_limit": item.daily_run_limit,
+                "max_active_runs": item.max_active_runs,
+            }
+
+    def list_clients(self, *, now: str | datetime) -> list[dict[str, Any]]:
+        timestamp = self._datetime(now)
+        day_start = datetime.combine(timestamp.date(), datetime_time.min, tzinfo=timezone.utc)
+        day_end = day_start + timedelta(days=1)
+        with self._session_factory() as session:
+            clients = session.scalars(select(ApiClient).order_by(ApiClient.client_id)).all()
+            summaries = session.execute(
+                select(
+                    ApiRun.client_id,
+                    func.sum(case((
+                        (ApiRun.created_at_utc >= day_start)
+                        & (ApiRun.created_at_utc < day_end), 1,
+                    ), else_=0)).label("runs_today"),
+                    func.sum(case((ApiRun.state.in_(("queued", "running")), 1), else_=0)).label("active_runs"),
+                )
+                .group_by(ApiRun.client_id)
+            ).all()
+            usage = {row.client_id: (row.runs_today or 0, row.active_runs or 0) for row in summaries}
+            return [
+                {
+                    "client_id": item.client_id,
+                    "is_active": item.is_active,
+                    "role": item.role,
+                    "daily_run_limit": item.daily_run_limit,
+                    "max_active_runs": item.max_active_runs,
+                    "runs_today": usage.get(item.client_id, (0, 0))[0],
+                    "active_runs": usage.get(item.client_id, (0, 0))[1],
+                }
+                for item in clients
+            ]
 
     def sync_problems(self, problem_ids: list[str], *, now: str | datetime) -> None:
         """Atomically publish the active problem allowlist and retain historical FK rows."""
@@ -162,9 +228,11 @@ class RunStore:
         idempotency_hash: str,
         now: str | datetime,
     ) -> tuple[dict[str, Any], bool]:
-        """Insert once under concurrent retries, returning the row that owns the key."""
+        """Atomically enforce client quotas and reserve one idempotent run."""
         identifier = UUID(run_id)
         timestamp = self._datetime(now)
+        day_start = datetime.combine(timestamp.date(), datetime_time.min, tzinfo=timezone.utc)
+        day_end = day_start + timedelta(days=1)
         values = {
             "run_id": identifier,
             "client_id": client_id,
@@ -180,11 +248,66 @@ class RunStore:
             insert_statement = postgresql_insert(ApiRun).values(**values)
         else:
             raise RuntimeError(f"Unsupported database dialect: {self.engine.dialect.name}")
-        insert_statement = insert_statement.on_conflict_do_nothing(
-            index_elements=[ApiRun.client_id, ApiRun.idempotency_hash]
-        )
-
         with self._session_factory.begin() as session:
+            if self.engine.dialect.name == "postgresql":
+                client = session.scalar(
+                    select(ApiClient)
+                    .where(ApiClient.client_id == client_id, ApiClient.is_active.is_(True))
+                    .with_for_update()
+                )
+            else:
+                # SQLite serializes writers; this no-op UPDATE acquires its write lock before
+                # reading quotas, preventing simultaneous requests from overshooting limits.
+                session.execute(
+                    update(ApiClient)
+                    .where(ApiClient.client_id == client_id, ApiClient.is_active.is_(True))
+                    .values(updated_at_utc=ApiClient.updated_at_utc)
+                )
+                client = session.scalar(
+                    select(ApiClient).where(
+                        ApiClient.client_id == client_id,
+                        ApiClient.is_active.is_(True),
+                    )
+                )
+            if client is None:
+                raise RuntimeError("Configured API client is not active in the database.")
+
+            existing = session.scalar(select(ApiRun).where(
+                ApiRun.client_id == client_id,
+                ApiRun.idempotency_hash == idempotency_hash,
+            ))
+            if existing is not None:
+                item = self._row_dict(existing)
+                assert item is not None
+                return item, False
+
+            daily_count = session.scalar(
+                select(func.count())
+                .select_from(ApiRun)
+                .where(
+                    ApiRun.client_id == client_id,
+                    ApiRun.created_at_utc >= day_start,
+                    ApiRun.created_at_utc < day_end,
+                )
+            ) or 0
+            if daily_count >= client.daily_run_limit:
+                seconds_to_reset = int((day_end - timestamp).total_seconds())
+                raise RunQuotaExceeded("daily_run_limit", seconds_to_reset)
+
+            active_count = session.scalar(
+                select(func.count())
+                .select_from(ApiRun)
+                .where(
+                    ApiRun.client_id == client_id,
+                    ApiRun.state.in_(("queued", "running")),
+                )
+            ) or 0
+            if active_count >= client.max_active_runs:
+                raise RunQuotaExceeded("max_active_runs", 5)
+
+            insert_statement = insert_statement.on_conflict_do_nothing(
+                index_elements=[ApiRun.client_id, ApiRun.idempotency_hash]
+            )
             inserted_run_id = session.execute(
                 insert_statement.returning(ApiRun.run_id)
             ).scalar_one_or_none()
@@ -199,6 +322,55 @@ class RunStore:
             item = self._row_dict(row)
             assert item is not None
             return item, inserted_run_id is not None
+
+    def record_http_request(self, *, status_code: int, duration_seconds: float, now: datetime) -> None:
+        """Atomically add a request to the durable UTC-day aggregate."""
+        timestamp = self._datetime(now)
+        duration_microseconds = max(0, round(duration_seconds * 1_000_000))
+        is_client_error = 1 if 400 <= status_code < 500 else 0
+        is_server_error = 1 if status_code >= 500 else 0
+        values = {
+            "metric_date": timestamp.date(),
+            "requests_total": 1,
+            "requests_4xx_total": is_client_error,
+            "requests_5xx_total": is_server_error,
+            "request_duration_microseconds": duration_microseconds,
+        }
+        if self.engine.dialect.name == "sqlite":
+            insert_statement = sqlite_insert(ApiDailyMetric).values(**values)
+        elif self.engine.dialect.name == "postgresql":
+            insert_statement = postgresql_insert(ApiDailyMetric).values(**values)
+        else:
+            raise RuntimeError(f"Unsupported database dialect: {self.engine.dialect.name}")
+        insert_statement = insert_statement.on_conflict_do_update(
+            index_elements=[ApiDailyMetric.metric_date],
+            set_={
+                "requests_total": ApiDailyMetric.requests_total + insert_statement.excluded.requests_total,
+                "requests_4xx_total": ApiDailyMetric.requests_4xx_total + insert_statement.excluded.requests_4xx_total,
+                "requests_5xx_total": ApiDailyMetric.requests_5xx_total + insert_statement.excluded.requests_5xx_total,
+                "request_duration_microseconds": (
+                    ApiDailyMetric.request_duration_microseconds
+                    + insert_statement.excluded.request_duration_microseconds
+                ),
+            },
+        )
+        with self._session_factory.begin() as session:
+            session.execute(insert_statement)
+
+    def get_http_metrics(self) -> dict[str, int | float]:
+        with self._session_factory() as session:
+            values = session.execute(select(
+                func.coalesce(func.sum(ApiDailyMetric.requests_total), 0),
+                func.coalesce(func.sum(ApiDailyMetric.requests_4xx_total), 0),
+                func.coalesce(func.sum(ApiDailyMetric.requests_5xx_total), 0),
+                func.coalesce(func.sum(ApiDailyMetric.request_duration_microseconds), 0),
+            )).one()
+            return {
+                "requests_total": int(values[0]),
+                "requests_4xx_total": int(values[1]),
+                "requests_5xx_total": int(values[2]),
+                "request_duration_seconds_sum": int(values[3]) / 1_000_000,
+            }
 
     def get_run(self, run_id: str, *, client_id: str = "default") -> dict[str, Any] | None:
         with self._session_factory() as session:

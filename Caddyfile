@@ -1,0 +1,4 @@
+{$ABACUS_DOMAIN} {
+	encode zstd gzip
+	reverse_proxy abacus-api:8000
+}

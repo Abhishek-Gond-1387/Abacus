@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from datetime import date
 from pathlib import Path
 from typing import Any
 from uuid import UUID
@@ -11,7 +12,9 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy import (
     Boolean,
+    BigInteger,
     CheckConstraint,
+    Date,
     DateTime,
     ForeignKey,
     Index,
@@ -56,11 +59,56 @@ class ApiClient(Base):
     """Configured API principal used to scope idempotency and run reads."""
 
     __tablename__ = "api_clients"
+    __table_args__ = (
+        CheckConstraint("role IN ('admin', 'member')", name="ck_api_clients_role"),
+        CheckConstraint(
+            "daily_run_limit BETWEEN 1 AND 1000000",
+            name="ck_api_clients_daily_run_limit",
+        ),
+        CheckConstraint(
+            "max_active_runs BETWEEN 1 AND 10000",
+            name="ck_api_clients_max_active_runs",
+        ),
+    )
 
     client_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    role: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="admin", server_default="admin"
+    )
+    daily_run_limit: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=100, server_default=text("100")
+    )
+    max_active_runs: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=3, server_default=text("3")
+    )
     created_at_utc: Mapped[Any] = mapped_column(DateTime(timezone=True), nullable=False)
     updated_at_utc: Mapped[Any] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class ApiDailyMetric(Base):
+    """Durable UTC-day aggregates for HTTP request monitoring."""
+
+    __tablename__ = "api_daily_metrics"
+    __table_args__ = (
+        CheckConstraint("requests_total >= 0", name="ck_api_daily_metrics_requests_nonnegative"),
+        CheckConstraint("requests_4xx_total >= 0", name="ck_api_daily_metrics_4xx_nonnegative"),
+        CheckConstraint("requests_5xx_total >= 0", name="ck_api_daily_metrics_5xx_nonnegative"),
+        CheckConstraint(
+            "request_duration_microseconds >= 0",
+            name="ck_api_daily_metrics_duration_nonnegative",
+        ),
+        CheckConstraint(
+            "requests_4xx_total + requests_5xx_total <= requests_total",
+            name="ck_api_daily_metrics_status_counts_valid",
+        ),
+    )
+
+    metric_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    requests_total: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    requests_4xx_total: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    requests_5xx_total: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    request_duration_microseconds: Mapped[int] = mapped_column(BigInteger, nullable=False, default=0)
 
 
 class ApiRun(Base):

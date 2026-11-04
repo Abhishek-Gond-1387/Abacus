@@ -1,0 +1,15 @@
+FROM python:3.12-slim
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+WORKDIR /app
+COPY requirements-backup.txt ./
+RUN pip install --no-cache-dir -r requirements-backup.txt \
+    && groupadd --system uploader \
+    && useradd --system --gid uploader --uid 10002 --home-dir /nonexistent uploader
+
+COPY db/s3_backup_uploader.py ./s3_backup_uploader.py
+USER 10002:10002
+
+CMD ["python", "/app/s3_backup_uploader.py"]

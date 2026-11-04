@@ -7,6 +7,7 @@ this module. The GitHub Actions postgres-integration job supplies that database.
 from __future__ import annotations
 
 import os
+import secrets
 import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
@@ -17,9 +18,10 @@ from uuid import uuid4
 from fastapi.testclient import TestClient
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.engine import make_url
 
 from abacus.api import create_app
-from abacus.api_store import RunStore
+from abacus.api_store import RunQuotaExceeded, RunStore
 
 
 DATABASE_URL = os.getenv("ABACUS_TEST_POSTGRES_URL", "")
@@ -62,6 +64,83 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         self.assertIn("uq_api_runs_client_idempotency_hash", constraints)
         self.assertIn("ck_api_runs_lifecycle_shape", constraints)
         self.assertIn("fk_api_runs_problem_id_problems", constraints)
+        with self.store.engine.connect() as connection:
+            client_constraints = set(connection.execute(text(
+                "SELECT conname FROM pg_constraint WHERE conrelid = 'api_clients'::regclass"
+            )).scalars())
+            metric_table = connection.execute(text(
+                "SELECT to_regclass('api_daily_metrics')"
+            )).scalar_one()
+        self.assertIn("ck_api_clients_role", client_constraints)
+        self.assertIn("ck_api_clients_daily_run_limit", client_constraints)
+        self.assertIn("ck_api_clients_max_active_runs", client_constraints)
+        self.assertEqual(metric_table, "api_daily_metrics")
+
+    def test_postgresql_client_quotas_and_durable_metrics(self) -> None:
+        now = datetime.now(timezone.utc)
+        client_id = f"quota-{uuid4().hex[:16]}"
+        self.store.sync_clients({client_id: {
+            "role": "member", "daily_run_limit": 2, "max_active_runs": 1,
+        }}, now=now)
+        first_hash = sha256(f"first-{uuid4()}".encode()).hexdigest()
+        first, created = self.store.reserve_run(
+            run_id=str(uuid4()), client_id=client_id, problem_id="p01_true_sort",
+            idempotency_hash=first_hash, now=now,
+        )
+        self.assertTrue(created)
+        with self.assertRaisesRegex(RunQuotaExceeded, "max_active_runs"):
+            self.store.reserve_run(
+                run_id=str(uuid4()), client_id=client_id, problem_id="p01_true_sort",
+                idempotency_hash=sha256(f"second-{uuid4()}".encode()).hexdigest(), now=now,
+            )
+
+        before = self.store.get_http_metrics()
+        self.store.record_http_request(status_code=200, duration_seconds=0.25, now=now)
+        after = self.store.get_http_metrics()
+        self.assertEqual(after["requests_total"], before["requests_total"] + 1)
+        self.assertAlmostEqual(
+            after["request_duration_seconds_sum"],
+            before["request_duration_seconds_sum"] + 0.25,
+        )
+        self.assertEqual(self.store.get_run(first["run_id"], client_id=client_id)["state"], "queued")
+
+    def test_non_superuser_schema_owner_can_migrate_and_write(self) -> None:
+        schema = f"runtime_{uuid4().hex[:16]}"
+        role = f"runtime_{uuid4().hex[:16]}"
+        password = secrets.token_urlsafe(32)
+        with self.store.engine.connect() as connection:
+            is_superuser = connection.execute(text(
+                "SELECT rolsuper FROM pg_roles WHERE rolname = current_user"
+            )).scalar_one()
+        if not is_superuser:
+            self.skipTest("The disposable integration database user cannot create temporary roles.")
+
+        with self.store.engine.begin() as connection:
+            connection.execute(text(f'CREATE ROLE "{role}" LOGIN PASSWORD :password NOSUPERUSER NOCREATEDB NOCREATEROLE').bindparams(password=password))
+            connection.execute(text(f'CREATE SCHEMA "{schema}" AUTHORIZATION "{role}"'))
+
+        base_url = make_url(DATABASE_URL).set(username=role, password=password)
+        query = dict(base_url.query)
+        query["options"] = f"-c search_path={schema}"
+        runtime_store = RunStore(str(base_url.set(query=query)))
+        try:
+            runtime_store.initialize()
+            runtime_store.sync_clients({"runtime-client": {
+                "role": "admin", "daily_run_limit": 2, "max_active_runs": 1,
+            }}, now=datetime.now(timezone.utc))
+            runtime_store.sync_problems(["p01_true_sort"], now=datetime.now(timezone.utc))
+            row, created = runtime_store.reserve_run(
+                run_id=str(uuid4()), client_id="runtime-client", problem_id="p01_true_sort",
+                idempotency_hash=sha256(f"runtime-{uuid4()}".encode()).hexdigest(),
+                now=datetime.now(timezone.utc),
+            )
+            self.assertTrue(created)
+            self.assertEqual(row["state"], "queued")
+        finally:
+            runtime_store.close()
+            with self.store.engine.begin() as connection:
+                connection.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
+                connection.execute(text(f'DROP ROLE IF EXISTS "{role}"'))
 
     def test_simultaneous_idempotent_reservations_create_one_row(self) -> None:
         key_hash = sha256(f"postgres-parallel-{uuid4()}".encode()).hexdigest()

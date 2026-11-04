@@ -164,6 +164,57 @@ class ApiServiceTests(unittest.TestCase):
                 self.assertEqual(hidden.status_code, 404)
                 self.assertEqual(visible.status_code, 200)
 
+    def test_roles_quotas_and_admin_client_listing(self) -> None:
+        keys = {
+            "operator": {
+                "api_key": "operator-secret-" + ("o" * 40),
+                "role": "admin", "daily_run_limit": 10, "max_active_runs": 3,
+            },
+            "member": {
+                "api_key": "member-secret-" + ("m" * 40),
+                "role": "member", "daily_run_limit": 5, "max_active_runs": 1,
+            },
+        }
+        with patch.dict(os.environ, {
+            "ABACUS_CLIENT_API_KEYS": json.dumps(keys),
+            "ABACUS_RUN_MODE": "queue",
+        }):
+            app = create_app(data_dir=self.data_dir / "roles")
+            with TestClient(app) as client:
+                admin_headers = {"X-API-Key": keys["operator"]["api_key"]}
+                member_headers = {"X-API-Key": keys["member"]["api_key"]}
+                denied = client.get("/v1/admin/clients", headers=member_headers)
+                self.assertEqual(denied.status_code, 403)
+
+                submitted = client.post(
+                    "/v1/runs", json={"problem_id": "p01_true_sort"},
+                    headers={**member_headers, "Idempotency-Key": "member-request-key-0001"},
+                )
+                self.assertEqual(submitted.status_code, 202)
+                repeated = client.post(
+                    "/v1/runs", json={"problem_id": "p01_true_sort"},
+                    headers={**member_headers, "Idempotency-Key": "member-request-key-0001"},
+                )
+                self.assertEqual(repeated.status_code, 202)
+                self.assertEqual(repeated.json()["run_id"], submitted.json()["run_id"])
+                limited = client.post(
+                    "/v1/runs", json={"problem_id": "p01_true_sort"},
+                    headers={**member_headers, "Idempotency-Key": "member-request-key-0002"},
+                )
+                self.assertEqual(limited.status_code, 429)
+                self.assertEqual(limited.json()["detail"]["code"], "max_active_runs")
+                self.assertIn("Retry-After", limited.headers)
+
+                listed = client.get("/v1/admin/clients", headers=admin_headers)
+                self.assertEqual(listed.status_code, 200, listed.text)
+                member = next(item for item in listed.json() if item["client_id"] == "member")
+                self.assertEqual(member["role"], "member")
+                self.assertEqual(member["daily_run_limit"], 5)
+                self.assertEqual(member["max_active_runs"], 1)
+                self.assertEqual(member["runs_today"], 1)
+                self.assertEqual(member["active_runs"], 1)
+                self.assertNotIn(keys["member"]["api_key"], listed.text)
+
     def test_unknown_problem_and_bad_request_shape_are_rejected(self) -> None:
         headers = {**self.headers, "Idempotency-Key": IDEMPOTENCY_KEY}
         unknown = self.client.post("/v1/runs", json={"problem_id": "unknown_problem"}, headers=headers)
