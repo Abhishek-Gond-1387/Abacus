@@ -50,11 +50,11 @@ The HTTP service exposes the checked-in sorting problems and runs the same local
 
 ### Abacus web interface
 
-The responsive web interface is served by the FastAPI application at the same origin, so the browser can use the existing API without a separate CORS configuration or a database connection. Start the API with the Docker Compose commands above, then open `http://127.0.0.1:8000/` (or the configured `ABACUS_PORT`). In Settings, enter the API key from your local `.env.api`; the key remains in page memory for that browser tab and is cleared when you disconnect or close the tab. Never put a shared admin key in a public frontend.
+The responsive web interface is served by FastAPI at the same origin. It calls the API, and the API persists data through SQLAlchemy; the browser never connects to the database. Start the API with the Docker Compose commands above, then open `http://127.0.0.1:8000/` (or the configured `ABACUS_PORT`). In Docker Compose mode, enter your local `.env.api` key in Settings; it stays in that tab's memory and is cleared when you disconnect or close the tab. Never put a shared admin key in a public frontend.
 
 The frontend includes Overview, Problems, New Evaluation, Run History, Run Details, Admin, and Settings. History stores only recent run IDs and labels in the current browser; full records are reloaded from the API and remain scoped to the API client. The Admin view is read-only and appears only when the API accepts an admin key. The optional demo mode is clearly labeled and uses only in-memory examples; it never submits runs or mixes sample records with live results.
 
-For development, the static assets are in `frontend/` and are mounted by `abacus.api` when that directory is present. If you serve those assets from a separate origin, the API needs an exact-origin CORS allowlist for that development origin and the `X-API-Key`, `Idempotency-Key`, and `Content-Type` headers. Do not use wildcard CORS with a shared key; same-origin serving is preferred. The interface uses no third-party analytics, paid service, or hosted font request.
+For local development without Docker, enable the loopback-only session below. The browser then connects to the same-origin API automatically, while the configured API key remains server-side. The bypass is opt-in and requires a loopback client address plus a localhost/loopback `Host`; any supplied `Origin` must match that host. It does not apply to forwarded/public hostnames. If you serve the UI from a separate origin, use the Settings API-key form and configure an exact-origin CORS allowlist; never use wildcard CORS with a shared key. The interface uses no third-party analytics, paid service, or hosted font request.
 
 Current pilot limits remain unchanged: only two built-in sorting problems are available; there is no custom code upload, user-defined test input, formal proof, or backend run-list endpoint. `TESTS_PASSED` means only that the scheduled finite test cases passed.
 
@@ -197,13 +197,17 @@ cloudflared tunnel --url http://localhost:8000
 
 Keep that terminal running while using the URL. Quick Tunnels require no Cloudflare account or domain, but the URL changes when restarted, has no uptime guarantee, and is intended for testing/development rather than production. Anyone with the URL can reach the public API, so keep a strong API key configured. See [Cloudflare Quick Tunnel limits](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/).
 
-For local development without Docker, set `ABACUS_API_KEY` to a random secret of at least 32 characters, start the API in inline mode, or set `ABACUS_RUN_MODE=queue` and start `python -m abacus.worker` separately. The API creates/updates the local SQLite schema through Alembic at startup; set `ABACUS_DATABASE_URL` to a PostgreSQL URL to use PostgreSQL instead.
+### Run all local layers without Docker
+
+The one-command local launcher starts FastAPI on loopback, connects the browser UI automatically, and persists data in SQLite by default. It creates a random API key in the server process if no key is configured; it does not print or expose that key. SQLite persists across restarts. To use PostgreSQL instead, configure `ABACUS_DATABASE_URL` before starting.
 
 ```powershell
-python -m pip install -e ".[test]"
-$env:ABACUS_API_KEY = (python -c "import secrets; print(secrets.token_urlsafe(48))")
-python -m uvicorn abacus.api:app --host 127.0.0.1 --port 8000 --workers 1
+python -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -e .
+.\Start-Abacus.ps1
 ```
+
+Open the URL printed by the launcher. The API applies the SQLite schema through Alembic at startup; evaluations, run state, and evidence are stored in that database. Stop the server with `Ctrl+C`. Keep `ABACUS_LOCAL_UI_AUTO_AUTH=0` (the default) for public/proxied deployments; those use normal API-key authentication.
 
 ## Day 5: first API call
 

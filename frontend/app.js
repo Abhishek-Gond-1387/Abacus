@@ -59,7 +59,8 @@
     view: 'overview', apiBase: localStorage.getItem(STORE.apiBase) || '', apiKey: '',
     problems: [...builtInProblems], apiReady: null, connectionError: '', connected: false,
     demo: false, search: '', currentRun: null, busy: false, error: '', clients: null,
-    adminAllowed: false, adminForbidden: false, metrics: null, healthChecking: false,
+    adminAllowed: false, adminForbidden: false, localAutoAuth: false,
+    localAutoAuthDisabled: false, metrics: null, healthChecking: false,
     theme: localStorage.getItem(STORE.theme) || 'light',
   };
   let toastTimer;
@@ -119,7 +120,7 @@
 
   function render() {
     document.body.classList.toggle('dark', state.theme === 'dark');
-    const connectionText = state.demo ? 'Demo data' : state.connected ? 'API connected' : state.apiReady === false ? 'API unavailable' : 'Not connected';
+    const connectionText = state.demo ? 'Demo data' : state.connected ? (state.localAutoAuth ? 'Local API connected' : 'API connected') : state.apiReady === false ? 'API unavailable' : 'Not connected';
     const connectionState = state.demo ? 'demo' : state.connected ? 'ready' : state.apiReady === false ? 'error' : '';
     app.innerHTML = `
       <div class="shell">
@@ -246,7 +247,7 @@
 
   function settingsView() {
     const base = state.apiBase || window.location.origin;
-    const connectionState = state.demo ? 'Demo mode is active. No secret is stored or sent.' : state.connected ? `Connected to ${state.apiBase || window.location.origin}. The key is held in memory for this tab only.` : 'The API key is held in page memory only. It is never saved to local storage.';
+    const connectionState = state.demo ? 'Demo mode is active. No secret is stored or sent.' : state.localAutoAuth ? 'Connected through the loopback-only local session. The API key stays on the server and is never sent to the browser.' : state.connected ? `Connected to ${state.apiBase || window.location.origin}. The key is held in memory for this tab only.` : 'The API key is held in page memory only. It is never saved to local storage.';
     const form = state.busy ? `<div class="loader">${loaderMark()} Connecting to the API…</div>` : state.connected ? `<div class="note-box">${esc(connectionState)}</div><div style="display:flex;gap:9px;margin-top:13px"><button class="button" data-action="disconnect">Disconnect and clear key</button><button class="button primary" data-action="refresh-health">Refresh connection</button></div>` : `<form id="connection-form"><label class="form-label" for="api-base">API base URL</label><input class="input mono" id="api-base" name="apiBase" value="${esc(base)}" placeholder="http://localhost:8000" autocomplete="url" /><div class="form-hint">Same-origin is recommended. When served by FastAPI, this is already set to the API origin.</div><label class="form-label" for="api-key" style="margin-top:15px">Your API key</label><input class="input mono" id="api-key" name="apiKey" type="password" required minlength="32" autocomplete="off" placeholder="Paste your operator key" /><div class="form-hint">Do not paste a shared admin key into a public site. This local connection form keeps it in memory only and clears it when you disconnect or close the tab.</div><div style="display:flex;gap:9px;align-items:center;margin-top:16px"><button class="button primary" type="submit">Connect to API ${icon('arrow')}</button><button class="button" type="button" data-action="demo">Preview demo</button></div>${state.error ? `<div class="inline-alert" role="alert">${esc(state.error)}</div>` : ''}</form>`;
     return `${heading('Connection', 'Settings', 'Connect the interface to your Abacus API or open the labeled sample preview.')}
       <div class="settings-grid"><section class="card form-card"><div class="form-section"><h2>API connection</h2><p>Calls use the existing backend. The frontend does not connect directly to the database.</p>${form}</div></section>
@@ -261,12 +262,46 @@
     try {
       const response = await fetch(`${getBase()}/health/ready`, { headers: { Accept: 'application/json' }, cache: 'no-store' });
       state.apiReady = response.ok;
+      if (response.ok && !state.localAutoAuthDisabled) await connectLocalSession();
     } catch {
       state.apiReady = false;
     } finally {
       state.healthChecking = false;
     }
     if (state.view !== 'run') render();
+  }
+
+  async function connectLocalSession() {
+    try {
+      const response = await fetch(`${getBase()}/ui/session`, { headers: { Accept: 'application/json' }, cache: 'no-store' });
+      if (!response.ok) return false;
+      const session = await response.json();
+      if (session.authenticated !== true || !session.client_id) return false;
+      const { data: problems } = await apiRequest('/v1/problems');
+      if (!Array.isArray(problems) || problems.length === 0) return false;
+      state.problems = problems;
+      state.connected = true;
+      state.localAutoAuth = true;
+      state.adminAllowed = session.role === 'admin';
+      state.adminForbidden = false;
+      state.clients = null;
+      if (state.adminAllowed) {
+        try {
+          const { data: clients } = await apiRequest('/v1/admin/clients');
+          state.clients = Array.isArray(clients) ? clients : [];
+        } catch {
+          state.adminAllowed = false;
+          state.adminForbidden = true;
+        }
+      }
+      await loadMetrics();
+      return true;
+    } catch {
+      state.connected = false;
+      state.localAutoAuth = false;
+      state.adminAllowed = false;
+      return false;
+    }
   }
 
   function getBase() {
@@ -327,6 +362,7 @@
     state.apiBase = base;
     state.apiKey = key;
     state.connected = false;
+    state.localAutoAuth = false;
     state.demo = false;
     state.clients = null;
     state.adminForbidden = false;
@@ -507,6 +543,8 @@
   function disconnect() {
     state.apiKey = '';
     state.connected = false;
+    state.localAutoAuth = false;
+    state.localAutoAuthDisabled = true;
     state.demo = false;
     state.clients = null;
     state.metrics = null;
@@ -516,12 +554,13 @@
     state.problems = [...builtInProblems];
     state.apiReady = null;
     render();
-    toast('Disconnected; the key was cleared from memory.');
+    toast('Disconnected; any in-memory key was cleared.');
   }
 
   function enterDemo() {
     state.apiKey = '';
     state.connected = false;
+    state.localAutoAuth = false;
     state.demo = true;
     state.apiReady = null;
     state.clients = null;

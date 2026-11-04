@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import ipaddress
 import json
 import logging
 import os
@@ -14,6 +15,7 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
+from urllib.parse import urlsplit
 from uuid import UUID, uuid4
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Security, status
@@ -212,6 +214,9 @@ def create_app(
     api_key_clients = {
         policy["api_key"]: client_id for client_id, policy in client_api_keys.items()
     }
+    local_ui_auto_auth = os.getenv("ABACUS_LOCAL_UI_AUTO_AUTH", "0").strip().lower() in {
+        "1", "true", "yes",
+    }
     run_mode = os.getenv("ABACUS_RUN_MODE", "inline").strip().lower()
     if run_mode not in {"inline", "queue"}:
         raise ValueError("ABACUS_RUN_MODE must be 'inline' or 'queue'.")
@@ -281,8 +286,43 @@ def create_app(
             raise HTTPException(status_code=403, detail="Admin role required.")
         return client
 
+    def is_local_ui_request(request: Request) -> bool:
+        """Limit the optional keyless browser flow to same-origin loopback requests."""
+        if not local_ui_auto_auth or request.client is None:
+            return False
+        try:
+            if not ipaddress.ip_address(request.client.host).is_loopback:
+                return False
+            host_header = request.headers.get("host", "")
+            host = urlsplit(f"//{host_header}")
+            if host.hostname not in {"localhost", "127.0.0.1", "::1"}:
+                return False
+            origin_value = request.headers.get("origin")
+            if origin_value:
+                origin = urlsplit(origin_value)
+                if (
+                    origin.scheme not in {"http", "https"}
+                    or origin.hostname not in {"localhost", "127.0.0.1", "::1"}
+                    or origin.netloc.casefold() != host.netloc.casefold()
+                ):
+                    return False
+        except ValueError:
+            return False
+        return True
+
     @app.middleware("http")
     async def structured_request_logging(request: Request, call_next):
+        local_policy = client_api_keys.get("default")
+        local_key = local_policy.get("api_key", "") if local_policy else ""
+        if (
+            request.url.path.startswith("/v1/") or request.url.path == "/metrics"
+        ) and b"x-api-key" not in {
+            name.lower() for name, _value in request.scope.get("headers", [])
+        } and len(local_key) >= 32 and is_local_ui_request(request):
+            request.scope["headers"] = [
+                *request.scope.get("headers", []),
+                (b"x-api-key", local_key.encode("latin-1")),
+            ]
         supplied_request_id = request.headers.get("X-Request-ID", "")
         request_id = (
             supplied_request_id
@@ -353,6 +393,21 @@ def create_app(
                 content={"status": "not_ready"},
             )
         return {"status": "ready"}
+
+    @app.get("/ui/session", include_in_schema=False)
+    def local_ui_session(request: Request) -> dict[str, Any]:
+        """Report local-only auto-auth readiness without returning any API secret."""
+        policy = client_api_keys.get("default")
+        if not is_local_ui_request(request) or policy is None or len(policy["api_key"]) < 32:
+            raise HTTPException(status_code=404, detail="Local UI auto-connect is unavailable.")
+        client = store.get_client("default")
+        if client is None or not client["is_active"]:
+            raise HTTPException(status_code=503, detail="Local UI client is not ready.")
+        return {
+            "authenticated": True,
+            "client_id": client["client_id"],
+            "role": client["role"],
+        }
 
     @app.get("/metrics", include_in_schema=False, dependencies=[Depends(authenticated_client)])
     def prometheus_metrics() -> Response:
