@@ -142,7 +142,10 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         base_url = make_url(DATABASE_URL).set(username=role, password=password)
         query = dict(base_url.query)
         query["options"] = f"-c search_path={schema}"
-        runtime_store = RunStore(str(base_url.set(query=query)))
+        runtime_database_url = base_url.set(query=query).render_as_string(
+            hide_password=False
+        )
+        runtime_store = RunStore(runtime_database_url)
         try:
             runtime_store.initialize()
             runtime_store.sync_clients({"runtime-client": {
