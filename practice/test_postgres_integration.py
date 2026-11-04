@@ -59,7 +59,7 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             )).scalars())
 
         self.assertEqual(column_types, {"run_id": "uuid", "record_json": "jsonb"})
-        self.assertIn("uq_api_runs_idempotency_hash", constraints)
+        self.assertIn("uq_api_runs_client_idempotency_hash", constraints)
         self.assertIn("ck_api_runs_lifecycle_shape", constraints)
         self.assertIn("fk_api_runs_problem_id_problems", constraints)
 

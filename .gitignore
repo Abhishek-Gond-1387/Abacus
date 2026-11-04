@@ -9,6 +9,7 @@ dist/
 runs/
 .abacus-audits/
 .abacus-data/
+backups/
 .pip-build-temp/
 .hypothesis/
 .pytest_cache/

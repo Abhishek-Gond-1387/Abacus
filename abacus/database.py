@@ -15,6 +15,7 @@ from sqlalchemy import (
     DateTime,
     ForeignKey,
     Index,
+    Integer,
     JSON,
     String,
     UniqueConstraint,
@@ -51,12 +52,25 @@ class Problem(Base):
     updated_at_utc: Mapped[Any] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
+class ApiClient(Base):
+    """Configured API principal used to scope idempotency and run reads."""
+
+    __tablename__ = "api_clients"
+
+    client_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+    created_at_utc: Mapped[Any] = mapped_column(DateTime(timezone=True), nullable=False)
+    updated_at_utc: Mapped[Any] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class ApiRun(Base):
     """Mutable lifecycle row plus one immutable, versioned evidence snapshot."""
 
     __tablename__ = "api_runs"
     __table_args__ = (
-        UniqueConstraint("idempotency_hash", name="uq_api_runs_idempotency_hash"),
+        UniqueConstraint(
+            "client_id", "idempotency_hash", name="uq_api_runs_client_idempotency_hash"
+        ),
         CheckConstraint(
             "state IN ('queued', 'running', 'finished', 'failed', 'interrupted')",
             name="ck_api_runs_state",
@@ -66,12 +80,19 @@ class ApiRun(Base):
             name="ck_api_runs_idempotency_hash_length",
         ),
         CheckConstraint(
-            "(state IN ('queued', 'running') AND error_category IS NULL "
-            "AND finished_at_utc IS NULL AND record_json IS NULL) "
+            "((state = 'queued' AND error_category IS NULL AND finished_at_utc IS NULL "
+            "AND record_json IS NULL AND lease_owner IS NULL AND lease_token IS NULL "
+            "AND lease_expires_at IS NULL) "
+            "OR (state = 'running' AND error_category IS NULL AND finished_at_utc IS NULL "
+            "AND record_json IS NULL AND attempt_count >= 1 AND lease_owner IS NOT NULL "
+            "AND lease_token IS NOT NULL "
+            "AND lease_expires_at IS NOT NULL) "
             "OR (state = 'finished' AND error_category IS NULL "
             "AND finished_at_utc IS NOT NULL AND record_json IS NOT NULL) "
             "OR (state IN ('failed', 'interrupted') AND error_category IS NOT NULL "
-            "AND finished_at_utc IS NOT NULL AND record_json IS NULL)",
+            "AND finished_at_utc IS NOT NULL AND record_json IS NULL)"
+            ") AND (state IN ('queued', 'running') OR (lease_owner IS NULL AND "
+            "lease_token IS NULL AND lease_expires_at IS NULL))",
             name="ck_api_runs_lifecycle_shape",
         ),
         CheckConstraint(
@@ -81,9 +102,16 @@ class ApiRun(Base):
         ),
         Index("ix_api_runs_created_at_utc", "created_at_utc"),
         Index("ix_api_runs_state_updated_at_utc", "state", "updated_at_utc"),
+        Index("ix_api_runs_state_lease_expiry", "state", "lease_expires_at"),
     )
 
     run_id: Mapped[UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True)
+    client_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("api_clients.client_id", ondelete="RESTRICT", name="fk_api_runs_client_id_clients"),
+        nullable=False,
+        default="default",
+    )
     problem_id: Mapped[str] = mapped_column(
         String(64),
         ForeignKey(
@@ -100,6 +128,10 @@ class ApiRun(Base):
     updated_at_utc: Mapped[Any] = mapped_column(DateTime(timezone=True), nullable=False)
     finished_at_utc: Mapped[Any | None] = mapped_column(DateTime(timezone=True))
     record_json: Mapped[dict[str, Any] | None] = mapped_column(RUN_RECORD_TYPE)
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default=text("0"))
+    lease_owner: Mapped[str | None] = mapped_column(String(128))
+    lease_token: Mapped[UUID | None] = mapped_column(Uuid(as_uuid=True))
+    lease_expires_at: Mapped[Any | None] = mapped_column(DateTime(timezone=True))
 
 
 def sqlite_url(path: str | Path) -> str:

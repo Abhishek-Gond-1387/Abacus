@@ -36,20 +36,20 @@ The regression suite and seed-problem runs work without `.env`, provider credent
 
 ## Backend API (FastAPI + PostgreSQL)
 
-The HTTP service exposes the checked-in sorting problems and runs the same local evaluation pipeline as the CLI. It does not accept uploaded Python code or arbitrary problem files. Protected routes require an `X-API-Key` with at least 32 characters. Each run submission also requires a unique `Idempotency-Key`; reusing it for the same problem returns the saved run instead of evaluating twice. Docker Compose runs PostgreSQL; local development defaults to SQLite. See the [database architecture](docs/database-architecture.md) for tables, constraints, transactions, and legacy-data migration details.
+The HTTP service exposes the checked-in sorting problems and runs the same local evaluation pipeline as the CLI. It does not accept uploaded Python code or arbitrary problem files. Protected routes require an `X-API-Key` with at least 32 characters. Configure one legacy key with `ABACUS_API_KEY`, or multiple named clients with `ABACUS_CLIENT_API_KEYS` as a JSON object. Each run submission also requires an `Idempotency-Key`; the key is scoped to its client, so clients do not collide or see each other's runs. Docker Compose runs PostgreSQL; local development defaults to SQLite. See the [database architecture](docs/database-architecture.md) for tables, constraints, transactions, and migration details.
 
 | Route | Access | Purpose |
 | --- | --- | --- |
 | `GET /health/live` | Public | Process liveness |
 | `GET /health/ready` | Public | API-key configuration and database connectivity |
 | `GET /v1/problems` | API key | List the supported seed problems |
-| `POST /v1/runs` | API key + idempotency key | Start a local evaluation |
+| `POST /v1/runs` | API key + idempotency key | Queue an evaluation (`202 Accepted`) |
 | `GET /v1/runs/{run_id}` | API key | Read a saved run and its evidence |
 | `GET /metrics` | API key | Process-local Prometheus counters |
 
 ### Run with Docker Compose
 
-Install Docker Desktop, then run these commands from the repository root in PowerShell. The API binds to `127.0.0.1:8000` by default, starts PostgreSQL on the private Compose network, and applies Alembic migrations before accepting requests. The PostgreSQL database and run files use named volumes.
+Install Docker Desktop, then run these commands from the repository root in PowerShell. The API binds to `127.0.0.1:8000` by default, starts PostgreSQL on the private Compose network, applies Alembic migrations before accepting requests, and sends queued work to a separate leased worker. A backup service writes daily PostgreSQL archives to a separate named volume and retains the latest 14 days by default.
 
 ```powershell
 python -c "import pathlib,secrets; p=pathlib.Path('.env.api'); p.write_text('ABACUS_API_KEY=' + secrets.token_urlsafe(48) + '\nDB_PASSWORD=' + secrets.token_urlsafe(36) + '\nABACUS_PORT=8000\n', encoding='utf-8')"
@@ -69,13 +69,55 @@ $headers = @{
 $run = Invoke-RestMethod -Method Post -Uri http://127.0.0.1:8000/v1/runs `
     -Headers $headers -ContentType "application/json" `
     -Body '{"problem_id":"p01_true_sort"}'
+while ($run.state -in @("queued", "running")) {
+    Start-Sleep -Seconds 1
+    $run = Invoke-RestMethod -Uri "http://127.0.0.1:8000/v1/runs/$($run.run_id)" -Headers $headers
+}
 $run
-Invoke-RestMethod -Uri "http://127.0.0.1:8000/v1/runs/$($run.run_id)" -Headers $headers
 ```
 
-Stop the service with `docker compose --env-file .env.api down`; keep the named `postgres-data` and `abacus-data` volumes to retain saved database rows and run files. To bind a different local port, set `ABACUS_PORT=8001` in `.env.api`. The Compose configuration currently runs one API process. Runs execute synchronously, and scaling workers needs a queue and a lease/recovery protocol. Put TLS and any public network exposure behind a properly configured reverse proxy. User accounts, roles, multi-tenant quotas, and cloud deployment are not implemented.
+Stop the service with `docker compose --env-file .env.api down`; keep the named `postgres-data`, `postgres-backups`, and `abacus-data` volumes. To bind a different local port, set `ABACUS_PORT=8001` in `.env.api`. Scale workers with `docker compose --env-file .env.api up -d --scale abacus-worker=3`. Each worker claims jobs with a database lease, renews the lease while running, and requeues expired jobs up to three attempts. Put TLS and any public network exposure behind a properly configured reverse proxy; web accounts, role-based administration, quotas, and cloud deployment remain out of scope.
 
-For local development without Docker, install the project and test extra, set `ABACUS_API_KEY` to a random secret of at least 32 characters, and start one worker. The API creates/updates the local SQLite schema through Alembic at startup; set `ABACUS_DATABASE_URL` to a PostgreSQL URL to use PostgreSQL instead.
+To configure separate API clients, set `ABACUS_CLIENT_API_KEYS` in `.env.api` to a single-quoted JSON mapping of client IDs to unique random secrets (each at least 32 characters), for example `ABACUS_CLIENT_API_KEYS='{"default":"<random-secret>","client-two":"<another-random-secret>"}'`. This replaces the legacy `ABACUS_API_KEY` setting. Client secrets are read from environment configuration and are never written to PostgreSQL. Keep the `default` client ID if existing runs should remain readable after upgrading.
+
+### PostgreSQL backup and restore
+
+The Compose backup service creates a custom-format dump immediately after the API has applied migrations, repeats it every 24 hours, validates each archive, and prunes archives older than 14 days. Both interval and retention can be changed with `BACKUP_INTERVAL_SECONDS` and `BACKUP_RETENTION_DAYS` in `.env.api`. Backups are on the separate `postgres-backups` Docker volume; copy important archives off the Docker host and encrypt them according to your storage policy.
+
+List and copy an archive to the host:
+
+```powershell
+docker compose --env-file .env.api exec database-backup ls -lh /backups
+New-Item -ItemType Directory -Force backups | Out-Null
+docker compose --env-file .env.api cp database-backup:/backups/<archive-name>.dump .\backups\
+```
+
+Before a release that changes the schema, take a manual snapshot, then deploy:
+
+```powershell
+$stamp = Get-Date -AsUTC -Format yyyyMMddTHHmmssZ
+docker compose --env-file .env.api stop abacus-api abacus-worker database-backup
+docker compose --env-file .env.api run --rm --no-deps --entrypoint pg_dump database-backup `
+    --format=custom --no-owner --no-acl --host=postgres --username=abacus `
+    --dbname=abacus --file="/backups/pre-migration-$stamp.dump"
+docker compose --env-file .env.api up --build -d
+```
+
+Restore replaces the database contents. Stop the API, workers, and scheduled backup loop first; then recreate the database from an archive in the backup volume and restart services:
+
+```powershell
+docker compose --env-file .env.api stop abacus-api abacus-worker database-backup
+docker compose --env-file .env.api run --rm --no-deps --entrypoint dropdb database-backup `
+    --if-exists --force --host=postgres --username=abacus abacus
+docker compose --env-file .env.api run --rm --no-deps --entrypoint createdb database-backup `
+    --host=postgres --username=abacus --owner=abacus abacus
+docker compose --env-file .env.api run --rm --no-deps --entrypoint pg_restore database-backup `
+    --no-owner --no-acl --host=postgres --username=abacus --dbname=abacus `
+    /backups/<archive-name>.dump
+docker compose --env-file .env.api up -d abacus-api abacus-worker database-backup
+```
+
+For local development without Docker, set `ABACUS_API_KEY` to a random secret of at least 32 characters, start the API in inline mode, or set `ABACUS_RUN_MODE=queue` and start `python -m abacus.worker` separately. The API creates/updates the local SQLite schema through Alembic at startup; set `ABACUS_DATABASE_URL` to a PostgreSQL URL to use PostgreSQL instead.
 
 ```powershell
 python -m pip install -e ".[test]"

@@ -35,6 +35,7 @@ PROBLEM_FILES = {
 }
 REQUEST_ID_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{1,64}$")
 IDEMPOTENCY_PATTERN = re.compile(r"^[A-Za-z0-9_.:-]{16,128}$")
+CLIENT_ID_PATTERN = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$")
 API_KEY_HEADER = APIKeyHeader(name="X-API-Key", auto_error=False)
 LOGGER = logging.getLogger("abacus.api")
 
@@ -51,6 +52,42 @@ def _utc_now() -> datetime:
 
 def _utc_text(value: datetime | None = None) -> str:
     return (value or _utc_now()).isoformat()
+
+
+def _configured_client_keys(
+    api_key_reader: Callable[[], str] | None,
+) -> dict[str, str]:
+    """Read client secrets from environment config; secrets never enter the database."""
+    if api_key_reader is not None:
+        return {"default": api_key_reader()}
+    encoded = os.getenv("ABACUS_CLIENT_API_KEYS", "").strip()
+    if encoded:
+        def reject_duplicate_ids(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+            result: dict[str, Any] = {}
+            for key, value in pairs:
+                if key in result:
+                    raise ValueError("ABACUS_CLIENT_API_KEYS contains a duplicate client ID.")
+                result[key] = value
+            return result
+
+        try:
+            mapping = json.loads(encoded, object_pairs_hook=reject_duplicate_ids)
+        except (json.JSONDecodeError, ValueError) as error:
+            raise ValueError("ABACUS_CLIENT_API_KEYS must be a JSON object.") from error
+        if type(mapping) is not dict or not mapping:
+            raise ValueError("ABACUS_CLIENT_API_KEYS must be a non-empty JSON object.")
+        if any(
+            type(client_id) is not str
+            or not CLIENT_ID_PATTERN.fullmatch(client_id)
+            or type(secret) is not str
+            for client_id, secret in mapping.items()
+        ):
+            raise ValueError("Client IDs and API keys in ABACUS_CLIENT_API_KEYS are invalid.")
+        usable = [secret for secret in mapping.values() if len(secret) >= 32]
+        if len(usable) != len(mapping) or len(set(usable)) != len(usable):
+            raise ValueError("Each configured client API key must be unique and at least 32 characters.")
+        return mapping
+    return {"default": os.getenv("ABACUS_API_KEY", "")}
 
 
 def _request_log(
@@ -136,7 +173,11 @@ def create_app(
         runs_dir = PROJECT_ROOT / runs_dir
     runs_dir = runs_dir.resolve()
     store = RunStore(configured_database_url)
-    read_api_key = api_key_reader or (lambda: os.getenv("ABACUS_API_KEY", ""))
+    client_api_keys = _configured_client_keys(api_key_reader)
+    api_key_clients = {secret: client_id for client_id, secret in client_api_keys.items()}
+    run_mode = os.getenv("ABACUS_RUN_MODE", "inline").strip().lower()
+    if run_mode not in {"inline", "queue"}:
+        raise ValueError("ABACUS_RUN_MODE must be 'inline' or 'queue'.")
     run_semaphore = threading.BoundedSemaphore(value=1)
     metrics_lock = threading.Lock()
     metrics = {
@@ -149,11 +190,21 @@ def create_app(
     @asynccontextmanager
     async def lifespan(application: FastAPI):
         store.initialize()
+        store.sync_clients(list(client_api_keys), now=_utc_now())
         store.sync_problems(list(PROBLEM_FILES), now=_utc_now())
         now = _utc_now()
-        recovered = store.recover_orphaned_runs(now=_utc_text(now))
-        if recovered:
-            LOGGER.warning(json.dumps({"event": "orphaned_runs_recovered", "count": recovered}))
+        if run_mode == "queue":
+            retried, exhausted = store.recover_expired_leases(now=now)
+            if retried or exhausted:
+                LOGGER.warning(json.dumps({
+                    "event": "expired_worker_leases_recovered",
+                    "requeued": retried,
+                    "interrupted": exhausted,
+                }))
+        else:
+            recovered = store.recover_orphaned_runs(now=_utc_text(now))
+            if recovered:
+                LOGGER.warning(json.dumps({"event": "orphaned_runs_recovered", "count": recovered}))
         try:
             yield
         finally:
@@ -168,23 +219,25 @@ def create_app(
     app.state.store = store
     app.state.runs_dir = runs_dir
 
-    def require_api_key(api_key: str | None = Security(API_KEY_HEADER)) -> None:
-        expected = read_api_key()
-        if not expected or len(expected) < 32:
+    def authenticated_client(api_key: str | None = Security(API_KEY_HEADER)) -> str:
+        if not any(len(secret) >= 32 for secret in client_api_keys.values()):
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="API authentication is not configured.",
             )
-        try:
-            authenticated = api_key is not None and secrets.compare_digest(api_key, expected)
-        except TypeError:
-            authenticated = False
-        if not authenticated:
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid or missing API key.",
-                headers={"WWW-Authenticate": "ApiKey"},
-            )
+        for configured_key, client_id in api_key_clients.items():
+            try:
+                if api_key is not None and secrets.compare_digest(api_key, configured_key):
+                    if store.is_client_active(client_id):
+                        return client_id
+                    break
+            except TypeError:
+                continue
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or missing API key.",
+            headers={"WWW-Authenticate": "ApiKey"},
+        )
 
     @app.middleware("http")
     async def structured_request_logging(request: Request, call_next):
@@ -237,8 +290,7 @@ def create_app(
 
     @app.get("/health/ready", tags=["health"], response_model=None)
     def readiness() -> JSONResponse | dict[str, str]:
-        key = read_api_key()
-        if not key or len(key) < 32:
+        if not any(len(secret) >= 32 for secret in client_api_keys.values()):
             return JSONResponse(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 content={"status": "not_ready"},
@@ -256,7 +308,7 @@ def create_app(
             )
         return {"status": "ready"}
 
-    @app.get("/metrics", include_in_schema=False, dependencies=[Depends(require_api_key)])
+    @app.get("/metrics", include_in_schema=False, dependencies=[Depends(authenticated_client)])
     def prometheus_metrics() -> Response:
         with metrics_lock:
             snapshot = dict(metrics)
@@ -277,7 +329,7 @@ def create_app(
         ))
         return Response(content=body, media_type="text/plain; version=0.0.4; charset=utf-8")
 
-    @app.get("/v1/problems", dependencies=[Depends(require_api_key)], tags=["problems"])
+    @app.get("/v1/problems", dependencies=[Depends(authenticated_client)], tags=["problems"])
     def list_problems() -> list[dict[str, str]]:
         problems: list[dict[str, str]] = []
         for problem_id in PROBLEM_FILES:
@@ -294,13 +346,13 @@ def create_app(
     @app.post(
         "/v1/runs",
         status_code=status.HTTP_201_CREATED,
-        dependencies=[Depends(require_api_key)],
         tags=["runs"],
         response_model=None,
     )
     def submit_run(
         payload: RunRequest,
         idempotency_key: str = Header(alias="Idempotency-Key"),
+        client_id: str = Depends(authenticated_client),
     ) -> JSONResponse | dict[str, Any]:
         if not IDEMPOTENCY_PATTERN.fullmatch(idempotency_key):
             raise HTTPException(
@@ -312,6 +364,7 @@ def create_app(
 
         existing, created = store.reserve_run(
             run_id=str(uuid4()),
+            client_id=client_id,
             problem_id=spec.problem_id,
             idempotency_hash=idempotency_hash,
             now=_utc_text(),
@@ -333,6 +386,14 @@ def create_app(
             )
 
         run_id = existing["run_id"]
+        if run_mode == "queue":
+            queued = store.get_run(run_id, client_id=client_id)
+            assert queued is not None
+            return JSONResponse(
+                status_code=status.HTTP_202_ACCEPTED,
+                content=_public_run(queued, include_record=False),
+                headers={"Retry-After": "1"},
+            )
         if not run_semaphore.acquire(blocking=False):
             store.fail_run(run_id, error_category="service_busy", now=_utc_text())
             raise HTTPException(
@@ -342,17 +403,23 @@ def create_app(
             )
 
         try:
-            store.mark_running(run_id, now=_utc_text())
+            lease_token = store.mark_running(run_id, now=_utc_text())
             record = run_problem(spec, runs_dir=app.state.runs_dir, run_id=run_id)
             record.pop("log_path", None)
-            store.finish_run(run_id, record, now=_utc_text())
-            finished = store.get_run(run_id)
+            store.finish_run(run_id, record, now=_utc_text(), lease_token=lease_token)
+            finished = store.get_run(run_id, client_id=client_id)
             assert finished is not None
             return _public_run(finished, include_record=False)
         except HTTPException:
             raise
         except Exception as error:
-            store.fail_run(run_id, error_category="evaluation_failed", now=_utc_text())
+            token = locals().get("lease_token")
+            store.fail_run(
+                run_id,
+                error_category="evaluation_failed",
+                now=_utc_text(),
+                lease_token=token,
+            )
             LOGGER.error(json.dumps({
                 "event": "run_failed",
                 "run_id": run_id,
@@ -366,9 +433,9 @@ def create_app(
         finally:
             run_semaphore.release()
 
-    @app.get("/v1/runs/{run_id}", dependencies=[Depends(require_api_key)], tags=["runs"])
-    def get_run(run_id: UUID) -> dict[str, Any]:
-        row = store.get_run(str(run_id))
+    @app.get("/v1/runs/{run_id}", tags=["runs"])
+    def get_run(run_id: UUID, client_id: str = Depends(authenticated_client)) -> dict[str, Any]:
+        row = store.get_run(str(run_id), client_id=client_id)
         if row is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found.")
         return _public_run(row, include_record=row["state"] == "finished")

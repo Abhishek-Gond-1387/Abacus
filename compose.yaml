@@ -31,10 +31,12 @@ services:
     ports:
       - "127.0.0.1:${ABACUS_PORT:-8000}:8000"
     environment:
-      ABACUS_API_KEY: ${ABACUS_API_KEY:?Set ABACUS_API_KEY in .env.api}
+      ABACUS_API_KEY: ${ABACUS_API_KEY:-}
+      ABACUS_CLIENT_API_KEYS: ${ABACUS_CLIENT_API_KEYS:-}
       ABACUS_DATABASE_URL: "postgresql+psycopg://abacus:${DB_PASSWORD:?Set DB_PASSWORD in .env.api}@postgres:5432/abacus"
       ABACUS_DATA_DIR: /data
       ABACUS_RUNS_DIR: /data/runs
+      ABACUS_RUN_MODE: queue
     volumes:
       - abacus-data:/data
     healthcheck:
@@ -48,6 +50,69 @@ services:
       start_period: 10s
       retries: 3
 
+  abacus-worker:
+    build: .
+    restart: unless-stopped
+    init: true
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      abacus-api:
+        condition: service_healthy
+    environment:
+      ABACUS_DATABASE_URL: "postgresql+psycopg://abacus:${DB_PASSWORD:?Set DB_PASSWORD in .env.api}@postgres:5432/abacus"
+      ABACUS_DATA_DIR: /data
+      ABACUS_RUNS_DIR: /data/runs
+      ABACUS_WORKER_POLL_SECONDS: ${ABACUS_WORKER_POLL_SECONDS:-1}
+      ABACUS_WORKER_LEASE_SECONDS: ${ABACUS_WORKER_LEASE_SECONDS:-90}
+    volumes:
+      - abacus-data:/data
+    command: ["python", "-m", "abacus.worker"]
+
+  database-backup:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    init: true
+    user: "0:0"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      abacus-api:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGDATABASE: abacus
+      PGUSER: abacus
+      PGPASSWORD: ${DB_PASSWORD:?Set DB_PASSWORD in .env.api}
+      BACKUP_INTERVAL_SECONDS: ${BACKUP_INTERVAL_SECONDS:-86400}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+    volumes:
+      - postgres-backups:/backups
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        while :; do
+          stamp="$$(date -u +%Y%m%dT%H%M%SZ)"
+          temporary="/backups/abacus-$${stamp}.dump.tmp"
+          final="/backups/abacus-$${stamp}.dump"
+          pg_dump --format=custom --no-owner --no-acl --file="$${temporary}"
+          pg_restore --list "$${temporary}" >/dev/null
+          mv "$${temporary}" "$${final}"
+          find /backups -type f -name 'abacus-*.dump' -mtime "+$${BACKUP_RETENTION_DAYS}" -delete
+          sleep "$${BACKUP_INTERVAL_SECONDS}"
+        done
+
 volumes:
   abacus-data:
   postgres-data:
+  postgres-backups:

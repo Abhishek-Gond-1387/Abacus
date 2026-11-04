@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import tempfile
 import unittest
+import json
+import os
 from datetime import datetime, timezone
 from hashlib import sha256
 from pathlib import Path
@@ -112,6 +114,55 @@ class ApiServiceTests(unittest.TestCase):
                 "/v1/runs", json={"problem_id": "p02_false_sort"}, headers=headers,
             )
         self.assertEqual(conflict.status_code, 409)
+
+    def test_clients_can_reuse_idempotency_keys_without_reading_each_others_runs(self) -> None:
+        keys = {
+            "client-alpha": "alpha-secret-" + ("a" * 40),
+            "client-beta": "beta-secret-" + ("b" * 40),
+        }
+        with patch.dict(os.environ, {
+            "ABACUS_CLIENT_API_KEYS": json.dumps(keys),
+            "ABACUS_RUN_MODE": "inline",
+        }):
+            app = create_app(data_dir=self.data_dir / "multi-client")
+            with TestClient(app) as client:
+                def fake_run_problem(spec, *, runs_dir, run_id):
+                    return {
+                        "run_id": run_id,
+                        "run_status": "complete",
+                        "outcome": {"outcome": "TESTS_PASSED"},
+                    }
+
+                with patch("abacus.api.run_problem", side_effect=fake_run_problem):
+                    first = client.post(
+                        "/v1/runs",
+                        json={"problem_id": "p01_true_sort"},
+                        headers={
+                            "X-API-Key": keys["client-alpha"],
+                            "Idempotency-Key": "same-idempotency-key-for-all",
+                        },
+                    )
+                    second = client.post(
+                        "/v1/runs",
+                        json={"problem_id": "p01_true_sort"},
+                        headers={
+                            "X-API-Key": keys["client-beta"],
+                            "Idempotency-Key": "same-idempotency-key-for-all",
+                        },
+                    )
+                self.assertEqual(first.status_code, 201)
+                self.assertEqual(second.status_code, 201)
+                self.assertNotEqual(first.json()["run_id"], second.json()["run_id"])
+                hidden = client.get(
+                    f"/v1/runs/{second.json()['run_id']}",
+                    headers={"X-API-Key": keys["client-alpha"]},
+                )
+                visible = client.get(
+                    f"/v1/runs/{second.json()['run_id']}",
+                    headers={"X-API-Key": keys["client-beta"]},
+                )
+                self.assertEqual(hidden.status_code, 404)
+                self.assertEqual(visible.status_code, 200)
 
     def test_unknown_problem_and_bad_request_shape_are_rejected(self) -> None:
         headers = {**self.headers, "Idempotency-Key": IDEMPOTENCY_KEY}

@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from hashlib import sha256
 from pathlib import Path
 from uuid import UUID, uuid4
@@ -147,6 +147,53 @@ class DatabaseIntegrityTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "not queued"):
             self.store.mark_running(run_id, now=_now())
 
+    def test_worker_leases_recover_expired_work_and_reject_stale_workers(self) -> None:
+        started = datetime(2026, 1, 1, tzinfo=timezone.utc)
+        run_id = str(uuid4())
+        self.store.reserve_run(
+            run_id=run_id,
+            problem_id="p01_true_sort",
+            idempotency_hash=_idempotency_hash("worker-lease-key"),
+            now=started,
+        )
+        first_claim = self.store.claim_next_run(
+            worker_id="worker-a", now=started, lease_seconds=10,
+        )
+        self.assertIsNotNone(first_claim)
+        first_row, first_token = first_claim
+        self.assertEqual(first_row["attempt_count"], 1)
+
+        requeued, interrupted = self.store.recover_expired_leases(
+            now=started + timedelta(seconds=11),
+        )
+        self.assertEqual((requeued, interrupted), (1, 0))
+        second_claim = self.store.claim_next_run(
+            worker_id="worker-b", now=started + timedelta(seconds=12), lease_seconds=30,
+        )
+        self.assertIsNotNone(second_claim)
+        second_row, second_token = second_claim
+        self.assertEqual(second_row["attempt_count"], 2)
+
+        record = {
+            "run_id": run_id,
+            "run_status": "complete",
+            "outcome": {"outcome": "TESTS_PASSED"},
+        }
+        with self.assertRaisesRegex(RuntimeError, "not running"):
+            self.store.finish_run(
+                run_id,
+                record,
+                now=started + timedelta(seconds=13),
+                lease_token=first_token,
+            )
+        self.store.finish_run(
+            run_id,
+            record,
+            now=started + timedelta(seconds=13),
+            lease_token=second_token,
+        )
+        self.assertEqual(self.store.get_run(run_id)["state"], "finished")
+
     def test_foreign_key_and_lifecycle_checks_reject_anomalous_rows(self) -> None:
         with self.assertRaises(IntegrityError):
             self.store.reserve_run(
@@ -197,7 +244,7 @@ class DatabaseIntegrityTests(unittest.TestCase):
         self.assertIn("UUID", ddl)
         self.assertIn("JSONB", ddl)
         self.assertIn("FOREIGN KEY(problem_id) REFERENCES problems", ddl)
-        self.assertIn("uq_api_runs_idempotency_hash", ddl)
+        self.assertIn("uq_api_runs_client_idempotency_hash", ddl)
         self.assertIn("ck_api_runs_lifecycle_shape", ddl)
 
     def test_legacy_sqlite_migration_preserves_runs_and_adds_foreign_keys(self) -> None:

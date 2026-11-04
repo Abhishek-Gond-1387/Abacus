@@ -9,6 +9,7 @@ dist/
 .env.*
 !.env.api.example
 runs/
+backups/
 .abacus-audits/
 .abacus-data/
 .pytest_cache/
