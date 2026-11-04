@@ -79,9 +79,14 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
     def test_postgresql_client_quotas_and_durable_metrics(self) -> None:
         now = datetime.now(timezone.utc)
         client_id = f"quota-{uuid4().hex[:16]}"
-        self.store.sync_clients({client_id: {
-            "role": "member", "daily_run_limit": 2, "max_active_runs": 1,
-        }}, now=now)
+        self.store.sync_clients({
+            "default": {
+                "role": "admin", "daily_run_limit": 100, "max_active_runs": 3,
+            },
+            client_id: {
+                "role": "member", "daily_run_limit": 2, "max_active_runs": 1,
+            },
+        }, now=now)
         first_hash = sha256(f"first-{uuid4()}".encode()).hexdigest()
         first, created = self.store.reserve_run(
             run_id=str(uuid4()), client_id=client_id, problem_id="p01_true_sort",
@@ -116,8 +121,20 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
             self.skipTest("The disposable integration database user cannot create temporary roles.")
 
         with self.store.engine.begin() as connection:
-            connection.execute(text(f'CREATE ROLE "{role}" LOGIN PASSWORD :password NOSUPERUSER NOCREATEDB NOCREATEROLE').bindparams(password=password))
-            connection.execute(text(f'CREATE SCHEMA "{schema}" AUTHORIZATION "{role}"'))
+            create_role = connection.execute(
+                text(
+                    "SELECT format("
+                    "'CREATE ROLE %I LOGIN PASSWORD %L NOSUPERUSER NOCREATEDB NOCREATEROLE', "
+                    ":role, :password)"
+                ),
+                {"role": role, "password": password},
+            ).scalar_one()
+            connection.exec_driver_sql(create_role)
+            create_schema = connection.execute(
+                text("SELECT format('CREATE SCHEMA %I AUTHORIZATION %I', :schema, :role)"),
+                {"schema": schema, "role": role},
+            ).scalar_one()
+            connection.exec_driver_sql(create_schema)
 
         base_url = make_url(DATABASE_URL).set(username=role, password=password)
         query = dict(base_url.query)
@@ -139,8 +156,16 @@ class PostgreSQLIntegrationTests(unittest.TestCase):
         finally:
             runtime_store.close()
             with self.store.engine.begin() as connection:
-                connection.execute(text(f'DROP SCHEMA IF EXISTS "{schema}" CASCADE'))
-                connection.execute(text(f'DROP ROLE IF EXISTS "{role}"'))
+                drop_schema = connection.execute(
+                    text("SELECT format('DROP SCHEMA IF EXISTS %I CASCADE', :schema)"),
+                    {"schema": schema},
+                ).scalar_one()
+                connection.exec_driver_sql(drop_schema)
+                drop_role = connection.execute(
+                    text("SELECT format('DROP ROLE IF EXISTS %I', :role)"),
+                    {"role": role},
+                ).scalar_one()
+                connection.exec_driver_sql(drop_role)
 
     def test_simultaneous_idempotent_reservations_create_one_row(self) -> None:
         key_hash = sha256(f"postgres-parallel-{uuid4()}".encode()).hexdigest()
