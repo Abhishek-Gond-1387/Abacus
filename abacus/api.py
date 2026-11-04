@@ -19,6 +19,7 @@ from uuid import UUID, uuid4
 from fastapi import Depends, FastAPI, Header, HTTPException, Request, Security, status
 from fastapi.responses import JSONResponse, Response
 from fastapi.security import APIKeyHeader
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.exc import SQLAlchemyError
 
@@ -502,6 +503,12 @@ def create_app(
         if row is None:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Run not found.")
         return _public_run(row, include_record=row["state"] == "finished")
+
+    frontend_dir = PROJECT_ROOT / "frontend"
+    if frontend_dir.is_dir():
+        # Keep the UI on the API origin so operators never need wildcard CORS.
+        # Mounted after API routes so the existing endpoints retain precedence.
+        app.mount("/", StaticFiles(directory=frontend_dir, html=True), name="frontend")
 
     return app
 

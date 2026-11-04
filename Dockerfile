@@ -14,6 +14,7 @@ COPY abacus/ ./abacus/
 COPY practice/ ./practice/
 COPY src/ ./src/
 COPY migrations/ ./migrations/
+COPY frontend/ ./frontend/
 RUN pip install --no-cache-dir . \
     && groupadd --system abacus \
     && useradd --system --gid abacus --uid 10001 --home-dir /nonexistent abacus

@@ -48,6 +48,16 @@ The HTTP service exposes the checked-in sorting problems and runs the same local
 | `GET /v1/admin/clients` | Admin API key | Client roles, quotas, and usage |
 | `GET /metrics` | API key | Persistent Prometheus counters |
 
+### Abacus web interface
+
+The responsive web interface is served by the FastAPI application at the same origin, so the browser can use the existing API without a separate CORS configuration or a database connection. Start the API with the Docker Compose commands above, then open `http://127.0.0.1:8000/` (or the configured `ABACUS_PORT`). In Settings, enter the API key from your local `.env.api`; the key remains in page memory for that browser tab and is cleared when you disconnect or close the tab. Never put a shared admin key in a public frontend.
+
+The frontend includes Overview, Problems, New Evaluation, Run History, Run Details, Admin, and Settings. History stores only recent run IDs and labels in the current browser; full records are reloaded from the API and remain scoped to the API client. The Admin view is read-only and appears only when the API accepts an admin key. The optional demo mode is clearly labeled and uses only in-memory examples; it never submits runs or mixes sample records with live results.
+
+For development, the static assets are in `frontend/` and are mounted by `abacus.api` when that directory is present. If you serve those assets from a separate origin, the API needs an exact-origin CORS allowlist for that development origin and the `X-API-Key`, `Idempotency-Key`, and `Content-Type` headers. Do not use wildcard CORS with a shared key; same-origin serving is preferred. The interface uses no third-party analytics, paid service, or hosted font request.
+
+Current pilot limits remain unchanged: only two built-in sorting problems are available; there is no custom code upload, user-defined test input, formal proof, or backend run-list endpoint. `TESTS_PASSED` means only that the scheduled finite test cases passed.
+
 ### Run with Docker Compose
 
 Install Docker Desktop, then run these commands from the repository root in PowerShell. The API binds to `127.0.0.1:8000` by default. PostgreSQL stays on the private Compose network; a one-shot bootstrap gives the runtime role ownership of the application schema, and the API applies Alembic migrations as that non-superuser role before accepting requests. Queued work runs in a separate leased worker. A backup service writes validated daily PostgreSQL archives to a separate named volume and retains the latest 14 days by default.
