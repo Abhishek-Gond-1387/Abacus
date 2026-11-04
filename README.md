@@ -99,6 +99,44 @@ docker compose --env-file .env.api --profile offsite-backup up -d s3-backup-uplo
 
 The uploader reads only final `.dump` files, verifies SHA-256 metadata to avoid repeat uploads, does not delete remote objects, and uses SSE-KMS. Give its dedicated AWS identity only the bucket/prefix listing and object read/write access plus KMS key permissions needed to upload and restore (`kms:GenerateDataKey` and `kms:Decrypt` for multipart uploads). Keep the KMS key in the bucket's AWS region. Set bucket lifecycle/versioning and test restores as part of your retention policy. AWS key values stay in the ignored `.env.api` file. See AWS's [SSE-KMS permissions and region requirements](https://docs.aws.amazon.com/AmazonS3/latest/userguide/UsingKMSEncryption.html).
 
+#### Verify an offsite restore without touching the live database
+
+Run this check on a trusted machine with Docker available and access to the deployment's `.env.api`. It downloads the newest archive under `S3_BACKUP_URI`, checks the stored byte count and SHA-256 metadata, then restores it into a temporary PostgreSQL 17 container with no published ports. The temporary container is removed after the check; the configured production database is not changed. The AWS identity needs `s3:ListBucket` for the configured prefix, `s3:GetObject`, and `kms:Decrypt` for the backup key.
+
+From PowerShell at the repository root:
+
+```powershell
+$envSettings = Get-Content .env.api | ConvertFrom-StringData
+$env:AWS_REGION = $envSettings.AWS_REGION
+$env:AWS_ACCESS_KEY_ID = $envSettings.AWS_ACCESS_KEY_ID
+$env:AWS_SECRET_ACCESS_KEY = $envSettings.AWS_SECRET_ACCESS_KEY
+$env:S3_BACKUP_URI = $envSettings.S3_BACKUP_URI
+if ($envSettings.ContainsKey('AWS_SESSION_TOKEN')) { $env:AWS_SESSION_TOKEN = $envSettings.AWS_SESSION_TOKEN }
+python -m pip install -r requirements-backup.txt
+python -m db.verify_s3_backup_restore
+```
+
+The check exits with an error if the prefix has no timestamped backup, its SHA-256 metadata is missing or mismatched, Docker cannot start the temporary database, or PostgreSQL cannot restore the archive. It prints only the archive name and restored public-table count, not credentials.
+
+### Free OneDrive backup and restore check
+
+If you want to avoid a paid cloud-storage subscription, the optional `onedrive-backup` Compose profile copies each validated PostgreSQL archive into a folder synced by the OneDrive desktop app. Microsoft free accounts include 5 GB shared across OneDrive files, photos, and Outlook attachments; check your remaining quota before enabling this profile. If syncing fails or the quota is full, the normal local Docker backup volume is still available. See [Microsoft's storage FAQ](https://support.microsoft.com/en-us/onedrive/microsoft-storage-faqs).
+
+Set `ABACUS_ONEDRIVE_BACKUP_DIR` in the ignored `.env.api` file to a folder inside the OneDrive sync root, using forward slashes, for example `C:/Users/YourWindowsUser/OneDrive/AbacusBackups`. Make sure the OneDrive desktop app is signed in and syncing, then start the copy service:
+
+```powershell
+docker compose --env-file .env.api --profile onedrive-backup up -d onedrive-backup-sync
+```
+
+The service checks for new archives every five minutes, verifies each copied file with `pg_restore --list`, and keeps the same 14-day default retention. After OneDrive reports that an archive has synced, verify a restore in a disposable PostgreSQL container:
+
+```powershell
+$backupFolder = Join-Path $env:USERPROFILE 'OneDrive\AbacusBackups'
+.\.venv\Scripts\python.exe -m db.verify_s3_backup_restore --local-dir $backupFolder
+```
+
+For a stronger cloud retrieval check, download an archive from OneDrive's website into a fresh local folder first, then pass that folder to `--local-dir`. The restore checker uses Docker locally and does not alter the app database. Free OneDrive storage is quota-limited and depends on the existing account; this option does not provide a server outside your PC.
+
 List and copy an archive to the host:
 
 ```powershell
@@ -140,6 +178,14 @@ docker compose --env-file .env.api --profile production up --build -d
 ```
 
 Caddy obtains and renews the certificate automatically and proxies HTTPS traffic to the API. Keep the API's `127.0.0.1` port binding; the proxy reaches the API on the private Compose network. The Caddy certificate state stays in named volumes. Without a domain, keep the profile disabled and use the local loopback endpoint.
+
+For a free temporary HTTPS demo without buying a domain, Cloudflare Quick Tunnels can publish the local API at a random `trycloudflare.com` URL. Install `cloudflared`, start the API on `127.0.0.1:8000`, and run:
+
+```powershell
+cloudflared tunnel --url http://localhost:8000
+```
+
+Keep that terminal running while using the URL. Quick Tunnels require no Cloudflare account or domain, but the URL changes when restarted, has no uptime guarantee, and is intended for testing/development rather than production. Anyone with the URL can reach the public API, so keep a strong API key configured. See [Cloudflare Quick Tunnel limits](https://developers.cloudflare.com/tunnel/get-started/quick-tunnels/).
 
 For local development without Docker, set `ABACUS_API_KEY` to a random secret of at least 32 characters, start the API in inline mode, or set `ABACUS_RUN_MODE=queue` and start `python -m abacus.worker` separately. The API creates/updates the local SQLite schema through Alembic at startup; set `ABACUS_DATABASE_URL` to a PostgreSQL URL to use PostgreSQL instead.
 

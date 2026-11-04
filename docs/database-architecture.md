@@ -96,6 +96,10 @@ The API applies pending migrations during startup before accepting requests. In 
 
 Compose creates a validated custom-format PostgreSQL dump immediately on startup, repeats daily, and retains 14 days in the separate `postgres-backups` volume by default. The optional `offsite-backup` profile uploads only completed `.dump` archives to S3 with SSE-KMS; it does not delete remote objects. Configure a bucket lifecycle policy and test restoration separately. The optional `production` profile starts Caddy for automatic HTTPS when a public domain and ports 80/443 are configured. Keep both profiles disabled until their external prerequisites and secrets are ready. The exact PowerShell commands are in the README's backup and reverse-proxy sections.
 
+`python -m db.verify_s3_backup_restore` downloads the newest archive from the configured S3 prefix, checks its byte count and SHA-256 metadata, then restores it into a disposable PostgreSQL 17 container with no published ports. It removes the temporary container afterward and never connects to or changes the configured application database. The check requires Docker plus an AWS identity with prefix listing, object read, and KMS decrypt permissions.
+
+The optional `onedrive-backup` Compose profile copies validated local archives to a host folder that the OneDrive desktop client syncs; it does not require cloud API credentials. `python -m db.verify_s3_backup_restore --local-dir <folder>` restores the newest local or synced archive into the same disposable PostgreSQL container. Cloud sync status and remaining OneDrive quota must be checked in the OneDrive client/account.
+
 `practice/test_postgres_integration.py` exercises migrations, PostgreSQL-native UUID/JSONB types, foreign-key/check constraints, concurrent idempotency, and a real API evaluation against a live PostgreSQL server. GitHub Actions starts PostgreSQL 17 as a service and runs this suite separately from the SQLite regression matrix. For a local server, set `ABACUS_TEST_POSTGRES_URL` to a disposable database URL and run `python -m unittest practice.test_postgres_integration -v`.
 
 ## Operational scope

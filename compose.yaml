@@ -184,6 +184,49 @@ services:
       - postgres-backups:/backups:ro
     command: ["python", "/app/s3_backup_uploader.py"]
 
+  onedrive-backup-sync:
+    image: postgres:17-alpine
+    profiles: ["onedrive-backup"]
+    restart: unless-stopped
+    user: "0:0"
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      database-backup:
+        condition: service_started
+    environment:
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-14}
+    volumes:
+      - postgres-backups:/source:ro
+      - type: bind
+        source: ${ABACUS_ONEDRIVE_BACKUP_DIR:-./.abacus-onedrive-backups}
+        target: /offsite
+    entrypoint: ["/bin/sh", "-ec"]
+    command:
+      - |
+        while :; do
+          for source in /source/abacus-*.dump; do
+            [ -f "$$source" ] || continue
+            name="$${source##*/}"
+            destination="/offsite/$$name"
+            temporary="/offsite/.$$name.tmp"
+            if [ -f "$$destination" ] && cmp -s "$$source" "$$destination"; then
+              continue
+            fi
+            cp "$$source" "$$temporary"
+            cmp -s "$$source" "$$temporary"
+            pg_restore --list "$$temporary" >/dev/null
+            mv -f "$$temporary" "$$destination"
+          done
+          find /offsite -type f -name 'abacus-*.dump' -mtime "+$${BACKUP_RETENTION_DAYS}" -delete
+          sleep 300
+        done
+
 volumes:
   abacus-data:
   postgres-data:
