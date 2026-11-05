@@ -63,6 +63,55 @@ class LLMProviderResponseTooLargeError(LLMProviderResponseError):
     category = "oversized_response"
 
 
+def _gemini_bad_request_error(error: Exception) -> LLMProviderError:
+    """Translate known Gemini 400 responses without exposing provider payloads."""
+    body = getattr(error, "body", None)
+    provider_error = body.get("error") if isinstance(body, dict) else None
+    if not isinstance(provider_error, dict):
+        provider_error = body if isinstance(body, dict) else {}
+
+    provider_message = provider_error.get("message", "")
+    message = provider_message.casefold() if isinstance(provider_message, str) else ""
+    provider_status = provider_error.get("status")
+    if not isinstance(provider_status, str):
+        provider_status = provider_error.get("code")
+    if isinstance(provider_status, str):
+        if len(provider_status) > 64 or not provider_status.isascii() or not provider_status.replace("_", "").isalnum():
+            provider_status = None
+    elif isinstance(provider_status, int) and not isinstance(provider_status, bool):
+        provider_status = str(provider_status)
+    else:
+        provider_status = None
+
+    if ("api key" in message or "api_key" in message) and any(
+        phrase in message for phrase in ("invalid", "not valid", "expired", "permission")
+    ):
+        return LLMProviderAuthenticationError(
+            "Gemini rejected the configured API key. Enter a valid Google AI Studio key; "
+            "do not enable billing."
+        )
+
+    if any(phrase in message for phrase in ("billing", "paid plan", "free tier is not available")):
+        return LLMProviderRequestError(
+            "Google says this project or region requires paid billing for the request. "
+            "Abacus will not enable billing; use a Free Tier eligible project/model or leave AI off."
+        )
+
+    if "model" in message and any(
+        phrase in message for phrase in ("not found", "not supported", "unsupported", "no access", "not available")
+    ):
+        return LLMProviderRequestError(
+            "Gemini could not use the configured model for this key. Check GEMINI_MODEL and "
+            "the model access shown for this project in Google AI Studio."
+        )
+
+    status_note = f" (Google status {provider_status})" if provider_status else ""
+    return LLMProviderRequestError(
+        f"Gemini rejected the request{status_note}. The provider details are hidden; check "
+        "the key, model access, and request configuration."
+    )
+
+
 class LLMClient(Protocol):
     """Narrow provider interface; callers must validate text with `schemas.parse_model_output`."""
 
@@ -200,7 +249,9 @@ class OpenAICompatibleLLMClient:
             raise LLMProviderConnectionError(
                 "Provider connection failed or timed out."
             ) from None
-        except BadRequestError:
+        except BadRequestError as error:
+            if self._provider == "gemini":
+                raise _gemini_bad_request_error(error) from None
             raise LLMProviderRequestError(
                 "Provider rejected the request. Check the configured model and request."
             ) from None
@@ -306,7 +357,9 @@ class OpenAICompatibleLLMClient:
             raise LLMProviderConnectionError(
                 "Provider connection failed or timed out."
             ) from None
-        except BadRequestError:
+        except BadRequestError as error:
+            if self._provider == "gemini":
+                raise _gemini_bad_request_error(error) from None
             raise LLMProviderRequestError(
                 "Provider rejected the request. Check the configured model and request."
             ) from None
