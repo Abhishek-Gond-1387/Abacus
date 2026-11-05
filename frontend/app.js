@@ -58,7 +58,7 @@
     view: 'ask', problems: [...builtInProblems], apiReady: null, connectionError: '', connected: false,
     demo: false, search: '', currentRun: null, nextPollAt: 0, busy: false, error: '', clients: null,
     adminAllowed: false, adminForbidden: false, adminLoadError: '', healthChecking: false,
-    qaAvailable: false, qaStatusKnown: false, qaReason: 'not_connected', qaBusy: false, qaError: '', qaMessages: [], questionText: '',
+    qaAvailable: false, qaReason: 'not_connected', qaBusy: false, qaMessages: [], questionText: '',
     customAvailable: false, customReason: 'not_connected', customBusy: false, customError: '', customResult: null,
     customSource: 'def candidate(values):\n    return sorted(values)\n', customInput: '[]',
     theme: localStorage.getItem(STORE.theme) || 'light',
@@ -217,7 +217,7 @@
       : state.qaAvailable
         ? 'Gemini is ready on the backend.'
         : `AI is ${state.connected ? featureReason(state.qaReason) : 'connecting to the backend'}.`;
-    const messages = state.qaMessages.map((item) => `<article class="chat-turn" data-turn-id="${esc(item.id)}">
+    const messages = state.qaMessages.map((item) => `<article class="chat-turn ${item.pending ? 'is-pending' : ''}" data-turn-id="${esc(item.id)}">
       <div class="chat-user"><div class="chat-avatar user-avatar">A</div><div class="chat-user-text">${esc(item.question)}</div></div>
       <div class="chat-assistant"><div class="chat-avatar assistant-avatar">${logo()}</div><div class="chat-assistant-body"><div class="chat-answer" data-answer-id="${esc(item.id)}">${esc(item.answer || '')}</div>
       ${item.pending ? `<div class="thinking-line"><span>${item.answer ? 'Writing' : 'Thinking'}</span><i></i><i></i><i></i></div>` : ''}
@@ -225,13 +225,14 @@
       ${item.disclaimer ? `<div class="chat-meta">${esc(item.provider)} · ${esc(item.model)} <span>·</span> ${esc(item.disclaimer)}</div>` : ''}</div></div></article>`).join('');
     const welcome = state.qaMessages.length ? '' : `<section class="chat-welcome"><div class="welcome-orbit">${logo()}</div><div class="eyebrow">Your thinking workspace</div><h1>What can I help you with?</h1><p>Ask a question, explore an idea, or get help understanding code.</p>
       <div class="suggestion-row"><button type="button" class="suggestion-chip" data-prompt="Explain how Abacus checks a Python claim">How Abacus works</button><button type="button" class="suggestion-chip" data-prompt="Help me understand a Python error">Understand a Python error</button><button type="button" class="suggestion-chip" data-prompt="Explain an idea in simple terms">Explain an idea</button></div></section>`;
-    const error = state.qaError ? `<div class="chat-error-banner" role="alert">${esc(state.qaError)}</div>` : '';
-    const composerDisabled = !state.connected || state.qaBusy || state.demo || (state.qaStatusKnown && !state.qaAvailable);
+    // Let the API make the final availability decision so users can submit and see
+    // its real, actionable error instead of a disabled composer with no explanation.
+    const composerDisabled = !state.connected || state.qaBusy || state.demo;
     const composerInputDisabled = state.qaBusy || state.demo;
     return `<section class="chat-workspace">
       <div class="chat-toolbar"><div><span class="chat-mode-mark">${logo()}</span><div><strong>Ask Abacus</strong><small>${esc(availability)} · Gemini answers stream as they arrive</small></div></div><button type="button" class="button ghost small" data-action="new-chat">${icon('new')} New chat</button></div>
       <div class="chat-transcript" id="chat-transcript" role="log" aria-live="off">${welcome}${messages}</div>
-      <div class="chat-compose-area">${error}<form class="chat-composer" id="question-form"><textarea id="question-text" name="question" rows="1" maxlength="2000" placeholder="Ask anything…" aria-label="Your message" required ${composerInputDisabled ? 'disabled' : ''}>${esc(state.questionText)}</textarea><div class="composer-bottom"><span class="composer-note">${state.qaBusy ? `<span class="live-indicator"><i></i> Answering…</span>` : state.qaAvailable ? 'Enter to send · Shift + Enter for a new line' : state.qaReason === 'checking_capabilities' ? 'Checking AI status · you can ask while it loads' : state.qaReason === 'capabilities_unavailable' ? 'Status check timed out · sending verifies live access' : 'Live answers need the server provider to be enabled.'}</span><button class="send-button" type="submit" aria-label="Send message" ${composerDisabled || !state.questionText.trim() ? 'disabled' : ''}>${state.qaBusy ? '<span class="send-spinner"></span>' : icon('arrow')}</button></div></form><p class="chat-disclaimer">AI can make mistakes. Don’t include private keys or sensitive information.</p></div>
+      <div class="chat-compose-area"><form class="chat-composer ${state.qaBusy ? 'is-answering' : ''}" id="question-form"><textarea id="question-text" name="question" rows="1" maxlength="2000" placeholder="Ask anything…" aria-label="Your message" required ${composerInputDisabled ? 'disabled' : ''}>${esc(state.questionText)}</textarea><div class="composer-bottom"><span class="composer-note">${state.qaBusy ? `<span class="live-indicator"><i></i> Answering…</span>` : !state.connected ? 'Connect the FastAPI server to send questions.' : state.qaAvailable ? 'Enter to send · Shift + Enter for a new line' : state.qaReason === 'checking_capabilities' ? 'Checking AI status · questions can be sent now' : state.qaReason === 'capabilities_unavailable' ? 'Status check timed out · sending checks live access' : `Server reports ${featureReason(state.qaReason)} · send for its live response.`}</span><button class="send-button" type="submit" aria-label="Send message" ${composerDisabled || !state.questionText.trim() ? 'disabled' : ''}>${state.qaBusy ? '<span class="send-spinner"></span>' : icon('arrow')}</button></div></form><p class="chat-disclaimer">AI can make mistakes. Don’t include private keys or sensitive information.</p></div>
     </section>`;
   }
 
@@ -286,7 +287,19 @@
     const ce = record.outcome?.counterexample;
     const resultTitle = ({ REFUTED: 'Counterexample confirmed', TESTS_PASSED: 'Scheduled tests passed', UNRESOLVED: 'Evidence is unresolved', ERROR: 'Evaluation error' }[outcome] || statusSummary(run.state));
     const metricHint = outcome === 'TESTS_PASSED' ? 'A finite test pass is not a formal proof.' : outcome === 'ERROR' ? 'An error is not a verdict.' : outcome === 'REFUTED' ? 'The candidate was checked against the trusted oracle and replayed.' : 'Review the evidence and completion status together.';
-    const evidenceRows = evidence.map((item) => `<tr><td><span class="evidence-method ${item.method === 'proposals' ? 'proposal' : ''}">${item.method === 'proposals' ? 'OFFLINE SUGGESTION' : esc(item.method || '—')}</span></td><td class="mono">${esc(item.test_id || '—')}</td><td><span class="evidence-json">${esc(jsonText(item.input_value))}</span></td><td><span class="evidence-json">${esc(jsonText(item.actual))}</span></td><td><span class="evidence-json">${esc(jsonText(item.expected))}</span></td><td>${badge(item.status, item.status === 'completed' ? 'green' : item.status === 'internal_error' ? 'red' : 'amber')}</td><td>${esc(item.failure_category || item.category || '—')}</td><td>${item.replay_confirmed === true ? badge('Replayed', 'green') : item.replay_confirmed === false ? badge('Not confirmed', 'red') : '—'}</td></tr>`).join('');
+    const generation = record.generation || {};
+    const methodCounts = generation.case_counts_by_method || {};
+    const hypothesisErrors = (record.errors || []).filter((item) => item.step === 'hypothesis_generation');
+    const hypothesisGenerated = Number.isInteger(generation.generated_case_count) ? generation.generated_case_count : evidence.filter((item) => item.method === 'hypothesis' && item.test_id !== 'hypothesis-generation').length;
+    const hypothesisSummary = hypothesisErrors.length
+      ? 'Hypothesis generation failed for this run. The evidence record marks the failure.'
+      : generation.generated_case_count !== undefined
+        ? `Hypothesis generated and evaluated ${hypothesisGenerated} case${hypothesisGenerated === 1 ? '' : 's'}${generation.settings?.hypothesis?.seed !== undefined ? ` · seed ${generation.settings.hypothesis.seed}` : ''}.`
+        : ['queued', 'running'].includes(run.state)
+          ? 'Hypothesis cases are generated as part of the evaluation and will appear in its evidence.'
+          : 'This run record does not include Hypothesis generation details.';
+    const hypothesisPanel = `<section class="hypothesis-panel"><span class="hypothesis-pulse ${hypothesisErrors.length ? 'error' : hypothesisGenerated ? 'ready' : ''}" aria-hidden="true"></span><div><strong>Hypothesis engine</strong><p>${esc(hypothesisSummary)}</p></div><span class="hypothesis-count">${generation.generated_case_count !== undefined ? `${hypothesisGenerated} cases` : 'In progress'}</span></section>`;
+    const evidenceRows = evidence.map((item) => `<tr><td><span class="evidence-method ${item.method === 'proposals' ? 'proposal' : item.method === 'hypothesis' ? 'hypothesis' : ''}">${item.method === 'proposals' ? 'OFFLINE SUGGESTION' : esc(item.method || '—')}</span></td><td class="mono">${esc(item.test_id || '—')}</td><td><span class="evidence-json">${esc(jsonText(item.input ?? item.input_value))}</span></td><td><span class="evidence-json">${esc(jsonText(item.actual))}</span></td><td><span class="evidence-json">${esc(jsonText(item.expected))}</span></td><td>${badge(item.status, item.status === 'completed' ? 'green' : item.status === 'internal_error' ? 'red' : 'amber')}</td><td>${esc(item.failure_category || item.category || '—')}</td><td>${item.replay_confirmed === true ? badge('Replayed', 'green') : item.replay_confirmed === false ? badge('Not confirmed', 'red') : '—'}</td></tr>`).join('');
     const nextPollSeconds = Math.max(0, Math.ceil((state.nextPollAt - Date.now()) / 1000));
     const busyMessage = state.busy ? `<div class="inline-alert" role="status"><span class="loader">${loaderMark()} ${esc(state.busyMessage || 'Loading the run record…')}</span></div>` : ['queued', 'running'].includes(run.state) ? `<div class="inline-alert" role="status">This run is ${esc(run.state)}.${nextPollSeconds ? ` Next poll in about ${nextPollSeconds} second${nextPollSeconds === 1 ? '' : 's'} (Retry-After).` : ''} <button class="button small" data-action="refresh-run">${icon('refresh')} Check run</button></div>` : '';
     return `${heading('Run record', 'Run details', 'The evidence and verdict below come from the run record stored by the API.', `<button class="button small" data-action="copy" data-copy="${esc(run.run_id)}">${icon('copy')} Copy run ID</button>`)}
@@ -296,7 +309,8 @@
           <div class="result-facts"><div class="fact"><span>Run completion</span><strong>${esc(completion.status || run.run_status || '—')}</strong></div><div class="fact"><span>Cases completed</span><strong>${completion.completed_case_count ?? run.outcome?.test_count ?? '—'} / ${completion.scheduled_case_count ?? record.generation?.scheduled_case_count ?? '—'}</strong></div><div class="fact"><span>Error category</span><strong>${esc(run.error_category || record.outcome?.failure_category || 'None')}</strong></div></div>
         </section>
         ${ce && ce.replay_confirmed === true ? `<section class="counterexample section-spacer"><div style="display:flex;align-items:center;justify-content:space-between;gap:10px"><h3>Replay-confirmed counterexample</h3><button class="button small" data-action="copy" data-copy="${esc(JSON.stringify(ce))}">${icon('copy')} Copy JSON</button></div><pre>${esc(jsonText(ce))}</pre></section>` : ''}
-        <section class="card section-spacer"><div class="card-head"><div><h2>Evidence reviewed</h2><p>${evidence.length} evidence record${evidence.length === 1 ? '' : 's'} · proposals are offline suggestions checked separately</p></div></div>${evidence.length ? `<div class="table-wrap"><table class="evidence-table"><thead><tr><th>Method</th><th>Case</th><th>Input</th><th>Candidate output</th><th>Expected / oracle</th><th>Case status</th><th>Failure category</th><th>Replay</th></tr></thead><tbody>${evidenceRows}</tbody></table></div>` : `<div class="empty-state"><div><strong>Evidence not included</strong><p>The API has not returned a finished record for this run yet.</p></div></div>`}</section>
+        ${hypothesisPanel}
+        <section class="card section-spacer"><div class="card-head"><div><h2>Evidence reviewed</h2><p>${evidence.length} records · fixed ${methodCounts.fixed ?? evidence.filter((item) => item.method === 'fixed').length} · Hypothesis ${methodCounts.hypothesis ?? evidence.filter((item) => item.method === 'hypothesis').length} · offline proposals ${methodCounts.proposals ?? evidence.filter((item) => item.method === 'proposals').length}</p></div></div>${evidence.length ? `<div class="table-wrap"><table class="evidence-table"><thead><tr><th>Method</th><th>Case</th><th>Input</th><th>Candidate output</th><th>Expected / oracle</th><th>Case status</th><th>Failure category</th><th>Replay</th></tr></thead><tbody>${evidenceRows}</tbody></table></div>` : `<div class="empty-state"><div><strong>Evidence not included</strong><p>The API has not returned a finished record for this run yet.</p></div></div>`}</section>
         ${record.generation || record.usage || record.provenance || record.errors?.length ? `<details class="card section-spacer"><summary class="card-head" style="cursor:pointer;list-style:none"><h2>Run provenance and settings</h2><span class="muted">Expand</span></summary><div class="card-body"><pre class="json-block">${esc(jsonText({ generation: record.generation, usage: record.usage, provenance: record.provenance, budget: record.budget, errors: Array.isArray(record.errors) ? record.errors.map((item) => ({ step: item.step, error_id: item.error_id })) : undefined }))}</pre></div></details>` : ''}
       </div><aside class="side-facts"><div class="card side-fact"><span>Problem claim</span><strong style="font-family:var(--sans);font-size:11px;line-height:1.55">${esc(problem.claim)}</strong></div><div class="card side-fact"><span>Run ID</span><strong>${esc(run.run_id)}</strong></div><div class="card side-fact"><span>Created</span><strong>${esc(relativeDate(run.created_at_utc))}</strong></div><div class="card side-fact"><span>Finished</span><strong>${esc(relativeDate(run.finished_at_utc))}</strong></div></aside></div>`;
   }
@@ -368,7 +382,6 @@
       state.clients = null;
       state.adminLoadError = '';
       state.qaAvailable = false;
-      state.qaStatusKnown = false;
       state.qaReason = 'checking_capabilities';
       state.customAvailable = false;
       state.customReason = 'checking_capabilities';
@@ -389,14 +402,12 @@
       const { data } = await apiRequest('/ui-api/v1/capabilities', { signal: AbortSignal.timeout(8000) });
       if (!state.connected || state.demo) return;
       state.qaAvailable = data?.questions?.available === true;
-      state.qaStatusKnown = true;
       state.qaReason = data?.questions?.reason || (state.qaAvailable ? '' : 'qa_disabled');
       state.customAvailable = data?.custom_code?.available === true;
       state.customReason = data?.custom_code?.reason || (state.customAvailable ? '' : 'day37_verification_not_passed');
     } catch {
       if (!state.connected || state.demo) return;
       state.qaAvailable = false;
-      state.qaStatusKnown = false;
       state.qaReason = 'capabilities_unavailable';
       state.customAvailable = false;
       state.customReason = 'capabilities_unavailable';
@@ -428,8 +439,9 @@
   function errorMessage(status, data) {
     if (data?.detail && typeof data.detail === 'object') {
       const detail = data.detail;
-      if (detail.code === 'qa_disabled') return 'AI questions are disabled on the backend.';
-      if (detail.code === 'gemini_not_configured') return 'A Gemini API key is not configured on the backend.';
+      if (detail.code === 'qa_disabled') return 'Live AI is off. Start Abacus with Start-Abacus-With-Gemini.ps1 to enable it.';
+      if (detail.code === 'gemini_not_configured') return 'Gemini is not configured. Get a free-tier key and start Abacus with Start-Abacus-With-Gemini.ps1.';
+      if (detail.code === 'rate_or_quota_limit') return 'Gemini rate or free-tier quota limit reached. Check the account quota before retrying.';
       if (detail.code === 'qa_requires_gemini') return 'This pilot does not fall back to a paid AI provider.';
       if (detail.code === 'day37_verification_not_passed') return 'Custom code was not run: Docker sandbox verification has not passed.';
       if (detail.code === 'execution_flag_disabled') return 'Custom code execution is disabled by the backend operator.';
@@ -609,9 +621,9 @@
   }
 
   async function submitQuestion() {
-    if (state.qaBusy || !state.connected || (state.qaStatusKnown && !state.qaAvailable) || state.demo) return;
+    if (state.qaBusy || !state.connected || state.demo) return;
     const question = state.questionText.trim();
-    if (!question) { state.qaError = 'Enter a question first.'; render(); return; }
+    if (!question) return;
     const message = {
       id: globalThis.crypto?.randomUUID ? crypto.randomUUID() : `turn-${Date.now()}`,
       question,
@@ -620,7 +632,6 @@
     };
     state.qaMessages.push(message);
     state.qaBusy = true;
-    state.qaError = '';
     state.questionText = '';
     render();
     document.getElementById('question-text')?.focus();
@@ -687,8 +698,9 @@
       if (streamError) throw streamError;
       if (!finished) throw new Error('The stream ended before the provider confirmed a complete answer.');
     } catch (error) {
-      message.error = error.message || 'The AI provider did not return an answer.';
-      state.qaError = message.error;
+      message.error = error instanceof TypeError
+        ? 'Could not reach the FastAPI server. Start or restart Abacus, then try this question again.'
+        : error.message || 'The AI provider did not return an answer.';
     } finally {
       message.pending = false;
       state.qaBusy = false;
@@ -797,7 +809,6 @@
       render();
     } else if (action === 'new-chat') {
       state.qaMessages = [];
-      state.qaError = '';
       state.questionText = '';
       state.view = 'ask';
       render();
@@ -855,7 +866,7 @@
       event.target.style.height = 'auto';
       event.target.style.height = `${Math.min(event.target.scrollHeight, 180)}px`;
       const sendButton = document.querySelector('#question-form .send-button');
-      if (sendButton) sendButton.disabled = !state.questionText.trim() || !state.connected || (state.qaStatusKnown && !state.qaAvailable) || state.qaBusy || state.demo;
+      if (sendButton) sendButton.disabled = !state.questionText.trim() || !state.connected || state.qaBusy || state.demo;
     }
     if (event.target.id === 'custom-source') state.customSource = event.target.value;
     if (event.target.id === 'custom-input') state.customInput = event.target.value;

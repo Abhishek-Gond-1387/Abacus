@@ -209,6 +209,8 @@ python -m venv .venv
 
 Open the URL printed by the launcher. The API applies the SQLite schema through Alembic at startup; evaluations, run state, and evidence are stored in that database. Stop the server with `Ctrl+C`. The proxy refuses non-loopback `Host` values and mismatched browser `Origin` values. Do not expose this local launcher directly to the internet.
 
+To enable general AI questions without saving the provider key to `.env`, create a Gemini API key in Google AI Studio and run `.\Start-Abacus-With-Gemini.ps1`. The script prompts for the key as hidden input and passes it to the backend process only. Use the Free Tier project and do not set up or enable billing; model access and free quotas depend on Google's current limits. The browser never receives this key.
+
 ## Day 5: first API call
 
 Get a Gemini API key from [Google AI Studio](https://aistudio.google.com/), then set `ABACUS_LLM_PROVIDER=gemini` and put the key in `GEMINI_API_KEY` in `.env`. If `.env` does not exist yet, copy `.env.example` first. `.env` is ignored by Git; never commit the key or paste it into chat or `NOTES.md`.
