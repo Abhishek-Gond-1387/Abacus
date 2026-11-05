@@ -255,7 +255,7 @@
   function featureReason(reason) {
     return ({
       not_connected: 'the backend is not connected',
-      qa_disabled: 'AI questions are disabled by the server operator',
+      qa_disabled: 'this server started without live AI enabled',
       qa_requires_gemini: 'the server is configured for a provider this free-tier pilot does not allow',
       gemini_not_configured: 'a Gemini key is not configured on the backend',
       checking_capabilities: 'checking the backend feature status',
@@ -439,7 +439,7 @@
   function errorMessage(status, data) {
     if (data?.detail && typeof data.detail === 'object') {
       const detail = data.detail;
-      if (detail.code === 'qa_disabled') return 'Live AI is off. Start Abacus with Start-Abacus-With-Gemini.ps1 to enable it.';
+      if (detail.code === 'qa_disabled') return 'Live AI is off on the server currently answering this page. Stop the old server with Ctrl+C, rerun Start-Abacus-With-Gemini.ps1, and enter a non-empty Gemini key at the hidden prompt.';
       if (detail.code === 'gemini_not_configured') return 'Gemini is not configured. Get a free-tier key and start Abacus with Start-Abacus-With-Gemini.ps1.';
       if (detail.code === 'rate_or_quota_limit') return 'Gemini rate or free-tier quota limit reached. Check the account quota before retrying.';
       if (detail.code === 'qa_requires_gemini') return 'This pilot does not fall back to a paid AI provider.';
