@@ -17,3 +17,5 @@ backups/
 .mypy_cache/
 .ruff_cache/
 .coverage
+/frontend/vendor/package/
+/frontend/vendor/katex-*.tgz

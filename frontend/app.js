@@ -147,8 +147,28 @@
           <main class="content ${state.view === 'ask' ? 'chat-content' : ''}" id="main-content">${state.demo ? demoBanner() : ''}${viewContent()}</main>
         </div>
       </div><div id="toast-slot" aria-live="polite"></div>`;
+    renderChatMath();
     introPending = false;
     if (!state.connected && !state.demo && state.apiReady === null) checkApiConnection();
+  }
+
+  function renderChatMath() {
+    const transcript = document.getElementById('chat-transcript');
+    if (!transcript || typeof window.renderMathInElement !== 'function') return;
+    window.renderMathInElement(transcript, {
+      delimiters: [
+        { left: '$$', right: '$$', display: true },
+        { left: '\\[', right: '\\]', display: true },
+        { left: '\\begin{equation}', right: '\\end{equation}', display: true },
+        { left: '\\begin{align}', right: '\\end{align}', display: true },
+        { left: '\\(', right: '\\)', display: false },
+        { left: '$', right: '$', display: false },
+      ],
+      ignoredTags: ['script', 'noscript', 'style', 'textarea', 'pre', 'code', 'option'],
+      throwOnError: false,
+      strict: 'ignore',
+      trust: false,
+    });
   }
 
   function demoBanner() {
