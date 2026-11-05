@@ -8,7 +8,8 @@ if (-not (Test-Path -LiteralPath $launcher -PathType Leaf)) {
 
 Write-Host 'For live AI answers, get a Gemini API key from https://aistudio.google.com/apikey.'
 Write-Host 'Use a Free Tier project with billing off; this script never enables billing.'
-$secureKey = Read-Host 'Gemini API key (hidden; press Enter to start without AI)' -AsSecureString
+Write-Host 'This launcher requires a key. Use Start-Abacus.ps1 only when you intentionally want AI disabled.'
+$secureKey = Read-Host 'Gemini API key (hidden; required)' -AsSecureString
 $environmentNames = @(
     'GEMINI_API_KEY', 'ABACUS_QA_ENABLED', 'ABACUS_LLM_PROVIDER', 'ABACUS_API_KEY',
     'ABACUS_API_BASE_URL', 'ABACUS_UI_PROXY_ENABLED', 'ABACUS_RUN_MODE', 'ABACUS_PORT'
@@ -20,20 +21,7 @@ foreach ($name in $environmentNames) {
 
 if ($secureKey.Length -eq 0) {
     $secureKey.Dispose()
-    Write-Host 'No key entered. Starting Abacus with live AI disabled; no Gemini request will be sent.'
-    $env:GEMINI_API_KEY = ''
-    $env:ABACUS_QA_ENABLED = '0'
-    try {
-        & $launcher
-        if ($LASTEXITCODE -ne 0) {
-            throw "Abacus stopped with exit code $LASTEXITCODE."
-        }
-    } finally {
-        foreach ($name in $environmentNames) {
-            [Environment]::SetEnvironmentVariable($name, $previousEnvironment[$name], 'Process')
-        }
-    }
-    return
+    throw 'No Gemini key was entered. Abacus was not started, so the browser cannot connect to an AI-disabled server by mistake.'
 }
 
 $keyPointer = [IntPtr]::Zero
@@ -44,6 +32,7 @@ try {
     $env:GEMINI_API_KEY = $plainKey
     $env:ABACUS_QA_ENABLED = '1'
     $env:ABACUS_LLM_PROVIDER = 'gemini'
+    Write-Host 'Starting Abacus with live Gemini AI enabled. The key is kept in this server process and will not be printed or saved.'
 
     & $launcher
     if ($LASTEXITCODE -ne 0) {
