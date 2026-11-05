@@ -171,6 +171,77 @@
     });
   }
 
+  function renderAssistantInline(value) {
+    const code = [];
+    let output = esc(value).replace(/`([^`]+)`/g, (_, content) => {
+      const token = `\u0000INLINE_CODE_${code.length}\u0000`;
+      code.push(`<code class="chat-inline-code">${content}</code>`);
+      return token;
+    });
+    output = output.replace(/\$\$[\s\S]*?\$\$|\\\[[\s\S]*?\\\]|\\\([\s\S]*?\\\)|\\begin\{(?:equation|align)\}[\s\S]*?\\end\{(?:equation|align)\}|(?<!\\)(?<!\$)\$(?!\$)[^$\n]+?(?<!\\)\$(?!\$)/g, (math) => {
+      const token = `\u0000INLINE_CODE_${code.length}\u0000`;
+      code.push(math);
+      return token;
+    });
+    output = output
+      .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>')
+      .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+      .replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, '$1<em>$2</em>');
+    return output.replace(/\u0000INLINE_CODE_(\d+)\u0000/g, (_, index) => code[Number(index)] || '');
+  }
+
+  function renderAssistantMarkdown(value) {
+    const lines = String(value ?? '').replace(/\r\n?/g, '\n').split('\n');
+    const blocks = [];
+    let paragraph = [];
+    let list = null;
+    let quote = [];
+    const flushParagraph = () => {
+      if (paragraph.length) blocks.push(`<p>${renderAssistantInline(paragraph.join(' '))}</p>`);
+      paragraph = [];
+    };
+    const flushList = () => {
+      if (list) blocks.push(`<${list.type}>${list.items.map((item) => `<li>${renderAssistantInline(item)}</li>`).join('')}</${list.type}>`);
+      list = null;
+    };
+    const flushQuote = () => {
+      if (quote.length) blocks.push(`<blockquote>${quote.map((line) => `<p>${renderAssistantInline(line)}</p>`).join('')}</blockquote>`);
+      quote = [];
+    };
+    const flushText = () => { flushParagraph(); flushList(); flushQuote(); };
+
+    for (let index = 0; index < lines.length; index += 1) {
+      const line = lines[index];
+      const fence = line.match(/^\s*```\s*([\w+#.-]*)\s*$/);
+      if (fence) {
+        flushText();
+        const codeLines = [];
+        index += 1;
+        while (index < lines.length && !/^\s*```\s*$/.test(lines[index])) codeLines.push(lines[index++]);
+        const language = fence[1] ? `<span class="chat-code-language">${esc(fence[1])}</span>` : '';
+        blocks.push(`<div class="chat-code-wrap">${language}<pre class="chat-code-block"><code>${esc(codeLines.join('\n'))}</code></pre></div>`);
+        continue;
+      }
+      if (!line.trim()) { flushText(); continue; }
+      const heading = line.match(/^#{1,3}\s+(.+)$/);
+      if (heading) { flushText(); blocks.push(`<h3>${renderAssistantInline(heading[1])}</h3>`); continue; }
+      const item = line.match(/^\s*(?:[-*+]\s+|\d+[.)]\s+)(.+)$/);
+      if (item) {
+        flushParagraph(); flushQuote();
+        const type = /^\s*\d+[.)]\s+/.test(line) ? 'ol' : 'ul';
+        if (list && list.type !== type) flushList();
+        if (!list) list = { type, items: [] };
+        list.items.push(item[1]);
+        continue;
+      }
+      const quoted = line.match(/^\s*&gt;\s?(.*)$/) || line.match(/^\s*>\s?(.*)$/);
+      if (quoted) { flushParagraph(); flushList(); quote.push(quoted[1]); continue; }
+      flushList(); flushQuote(); paragraph.push(line.trim());
+    }
+    flushText();
+    return blocks.join('');
+  }
+
   function demoBanner() {
     return `<div class="demo-banner"><span><strong>Demo data.</strong> These sample records are illustrative and are not connected to your API.</span><button class="button small" type="button" data-action="exit-demo">Exit demo</button></div>`;
   }
@@ -239,8 +310,8 @@
         : `AI is ${state.connected ? featureReason(state.qaReason) : 'connecting to the backend'}.`;
     const messages = state.qaMessages.map((item) => `<article class="chat-turn ${item.pending ? 'is-pending' : ''}" data-turn-id="${esc(item.id)}">
       <div class="chat-user"><div class="chat-avatar user-avatar">A</div><div class="chat-user-text">${esc(item.question)}</div></div>
-      <div class="chat-assistant"><div class="chat-avatar assistant-avatar">${logo()}</div><div class="chat-assistant-body"><div class="chat-answer" data-answer-id="${esc(item.id)}">${esc(item.answer || '')}</div>
-      ${item.pending ? `<div class="thinking-line"><span>${item.answer ? 'Writing' : 'Thinking'}</span><i></i><i></i><i></i></div>` : ''}
+      <div class="chat-assistant"><div class="chat-avatar assistant-avatar">${logo()}</div><div class="chat-assistant-body"><div class="chat-answer" data-answer-id="${esc(item.id)}">${renderAssistantMarkdown(item.answer || '')}</div>
+      ${item.pending ? `<div class="answer-activity" role="status" aria-label="Generating an answer"><span class="activity-emblem">${logo()}<i class="activity-orbit"></i><i class="activity-orbit activity-orbit-secondary"></i></span><span class="activity-copy"><strong>${item.answer ? 'Shaping a clear answer' : 'Thinking through your question'}</strong><small>Abacus is working on a helpful response</small></span><span class="activity-bars" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span></div>` : ''}
       ${item.error ? `<div class="chat-error">${esc(item.error)}</div>` : ''}
       ${item.disclaimer ? `<div class="chat-meta">${esc(item.provider)} · ${esc(item.model)} <span>·</span> ${esc(item.disclaimer)}</div>` : ''}</div></div></article>`).join('');
     const welcome = state.qaMessages.length ? '' : `<section class="chat-welcome"><div class="welcome-orbit">${logo()}</div><div class="eyebrow">Your thinking workspace</div><h1>What can I help you with?</h1><p>Ask a question, explore an idea, or get help understanding code.</p>
@@ -250,7 +321,7 @@
     const composerDisabled = !state.connected || state.qaBusy || state.demo;
     const composerInputDisabled = state.qaBusy || state.demo;
     return `<section class="chat-workspace">
-      <div class="chat-toolbar"><div><span class="chat-mode-mark">${logo()}</span><div><strong>Ask Abacus</strong><small>${esc(availability)} · Gemini answers stream as they arrive</small></div></div><button type="button" class="button ghost small" data-action="new-chat">${icon('new')} New chat</button></div>
+      <div class="chat-toolbar"><div class="chat-live-state"><i class="status-dot ${state.demo ? 'demo' : state.qaAvailable ? 'ready' : ''}"></i><small>${esc(availability)}</small></div></div>
       <div class="chat-transcript" id="chat-transcript" role="log" aria-live="off">${welcome}${messages}</div>
       <div class="chat-compose-area"><form class="chat-composer ${state.qaBusy ? 'is-answering' : ''}" id="question-form"><textarea id="question-text" name="question" rows="1" maxlength="2000" placeholder="Ask anything…" aria-label="Your message" required ${composerInputDisabled ? 'disabled' : ''}>${esc(state.questionText)}</textarea><div class="composer-bottom"><span class="composer-note">${state.qaBusy ? `<span class="live-indicator"><i></i> Answering…</span>` : !state.connected ? 'Connect the FastAPI server to send questions.' : state.qaAvailable ? 'Enter to send · Shift + Enter for a new line' : state.qaReason === 'checking_capabilities' ? 'Checking AI status · questions can be sent now' : state.qaReason === 'capabilities_unavailable' ? 'Status check timed out · sending checks live access' : `Server reports ${featureReason(state.qaReason)} · send for its live response.`}</span><button class="send-button" type="submit" aria-label="Send message" ${composerDisabled || !state.questionText.trim() ? 'disabled' : ''}>${state.qaBusy ? '<span class="send-spinner"></span>' : icon('arrow')}</button></div></form><p class="chat-disclaimer">AI can make mistakes. Don’t include private keys or sensitive information.</p></div>
     </section>`;
