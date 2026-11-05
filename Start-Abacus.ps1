@@ -53,6 +53,8 @@ Push-Location $projectRoot
 try {
     Write-Host "Abacus UI: http://127.0.0.1:$port/"
     Write-Host 'Server-side API proxy is enabled for loopback requests only. The API key is not printed or sent to the browser.'
+    Write-Host 'Ask AI is off unless ABACUS_QA_ENABLED=1 and a Gemini key is configured on the server.'
+    Write-Host 'Custom code stays off until Docker sandbox verification passes and ABACUS_UNTRUSTED_EXECUTION=1.'
     if ([string]::IsNullOrWhiteSpace($env:ABACUS_DATABASE_URL)) {
         Write-Host 'Database: persistent local SQLite under .abacus-data (or ABACUS_DATA_DIR if configured).'
     } else {

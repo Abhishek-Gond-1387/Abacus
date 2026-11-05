@@ -692,3 +692,9 @@ Open one full, revalidated record by its `audit_record_id` from the list:
 ```
 
 Use `--audits-dir PATH` with either command to inspect another folder. Listing reports only summary fields plus incomplete markers and invalid-file categories; `show-audit` rechecks the strict schema, typed response, timestamps, and request metadata before printing the record. These commands are local-only and do not load credentials or contact a provider.
+
+## Local UI: Ask AI and custom code
+
+The UI includes an opt-in general question page and a custom Python check page. Both use authenticated backend endpoints through the same-origin UI proxy. Ask AI is disabled unless `ABACUS_QA_ENABLED=1` and a Gemini key is configured on the backend; the browser never receives the key, and no paid-provider fallback is allowed. Provider quotas and account billing settings still apply. Custom code checks are currently limited to one integer-array input against the built-in ascending-sort claim, and remain unavailable until Docker Day 37 verification passes and `ABACUS_UNTRUSTED_EXECUTION=1`. A one-input `TESTS_PASSED` is not a proof. Neither AI conversations nor custom code/results are retained as database history.
+
+See [docs/LOCAL_SANDBOX_SETUP.md](docs/LOCAL_SANDBOX_SETUP.md) for free Docker Desktop/WSL setup, exact environment controls, and the sandbox verification sequence.

@@ -66,7 +66,14 @@ class LLMProviderResponseTooLargeError(LLMProviderResponseError):
 class LLMClient(Protocol):
     """Narrow provider interface; callers must validate text with `schemas.parse_model_output`."""
 
-    def complete(self, prompt: str, *, model_id: str) -> str:
+    def complete(
+        self,
+        prompt: str,
+        *,
+        model_id: str,
+        max_output_tokens: int = MAX_OUTPUT_TOKENS,
+        system_message: str | None = None,
+    ) -> str:
         """Return an untrusted provider response as text."""
         ...
 
@@ -127,9 +134,22 @@ class OpenAICompatibleLLMClient:
             "sampling_parameters": "provider_defaults",
         }
 
-    def complete(self, prompt: str, *, model_id: str) -> str:
+    def complete(
+        self,
+        prompt: str,
+        *,
+        model_id: str,
+        max_output_tokens: int = MAX_OUTPUT_TOKENS,
+        system_message: str | None = None,
+    ) -> str:
         _validate_prompt(prompt)
         _validate_model_id(model_id)
+        if type(max_output_tokens) is not int or not 1 <= max_output_tokens <= MAX_OUTPUT_TOKENS:
+            raise ValueError(f"max_output_tokens must be between 1 and {MAX_OUTPUT_TOKENS}.")
+        if system_message is not None:
+            if type(system_message) is not str:
+                raise ValueError("system_message must be a string or None.")
+            _validate_prompt(system_message)
 
         try:
             from openai import (
@@ -147,12 +167,13 @@ class OpenAICompatibleLLMClient:
 
         request: dict[str, Any] = {
             "model": model_id.strip(),
-            "messages": [{"role": "user", "content": prompt}],
+            "messages": ([{"role": "system", "content": system_message}] if system_message else [])
+            + [{"role": "user", "content": prompt}],
         }
         if self._provider == "gemini":
-            request["max_tokens"] = MAX_OUTPUT_TOKENS
+            request["max_tokens"] = max_output_tokens
         else:
-            request["max_completion_tokens"] = MAX_OUTPUT_TOKENS
+            request["max_completion_tokens"] = max_output_tokens
 
         try:
             response = self._client.chat.completions.create(**request)

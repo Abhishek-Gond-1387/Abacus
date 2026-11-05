@@ -58,6 +58,9 @@
     view: 'overview', problems: [...builtInProblems], apiReady: null, connectionError: '', connected: false,
     demo: false, search: '', currentRun: null, nextPollAt: 0, busy: false, error: '', clients: null,
     adminAllowed: false, adminForbidden: false, healthChecking: false,
+    qaAvailable: false, qaReason: 'not_connected', qaBusy: false, qaError: '', qaMessages: [], questionText: '',
+    customAvailable: false, customReason: 'not_connected', customBusy: false, customError: '', customResult: null,
+    customSource: 'def candidate(values):\n    return sorted(values)\n', customInput: '[]',
     theme: localStorage.getItem(STORE.theme) || 'light',
   };
   let toastTimer;
@@ -68,6 +71,8 @@
     overview: '<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/>',
     problems: '<path d="M12 3 21 8v8l-9 5-9-5V8l9-5Z"/><circle cx="12" cy="12" r="2"/>',
     new: '<path d="M12 5v14M5 12h14"/>',
+    ask: '<path d="M20 11.5a7.5 7.5 0 0 1-7.5 7.5H6l-3 2v-6.5A7.5 7.5 0 1 1 20 11.5Z"/><path d="M8 11h.01M12 11h.01M16 11h.01"/>',
+    custom: '<path d="m8 7-5 5 5 5M16 7l5 5-5 5M14 4l-4 16"/>',
     runs: '<path d="M4 5h16M4 12h16M4 19h16"/><circle cx="7" cy="5" r="1"/><circle cx="7" cy="12" r="1"/><circle cx="7" cy="19" r="1"/>',
     admin: '<path d="M12 3 20 6v5c0 5-3.4 8.5-8 10-4.6-1.5-8-5-8-10V6l8-3Z"/><path d="m9 12 2 2 4-4"/>',
     settings: '<circle cx="12" cy="12" r="3"/><path d="m19.4 15 .1.1 1.4 1.1-1.5 2.6-1.7-.7a8 8 0 0 1-1.5.9l-.3 1.8h-3l-.3-1.8a8 8 0 0 1-1.5-.9l-1.7.7-1.5-2.6 1.4-1.1a7 7 0 0 1 0-1.8l-1.4-1.1 1.5-2.6 1.7.7a8 8 0 0 1 1.5-.9l.3-1.8h3l.3 1.8a8 8 0 0 1 1.5.9l1.7-.7 1.5 2.6-1.4 1.1a7 7 0 0 1 0 1.7Z" transform="translate(-1 -1) scale(.97)"/>',
@@ -82,9 +87,9 @@
   const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
   const jsonText = (value) => JSON.stringify(value ?? null, null, 2);
   const problemFor = (id) => state.problems.find((problem) => problem.problem_id === id) || builtInProblems.find((problem) => problem.problem_id === id) || { problem_id: id, claim: 'Supported evaluation problem' };
-  const titleFor = (view) => ({ overview: 'Overview', problems: 'Problems', new: 'New evaluation', runs: 'Run history', run: 'Run details', admin: 'Admin', settings: 'Settings' }[view] || 'Overview');
+  const titleFor = (view) => ({ overview: 'Overview', problems: 'Problems', new: 'New evaluation', ask: 'Ask AI', custom: 'My code', runs: 'Run history', run: 'Run details', admin: 'Admin', settings: 'Settings' }[view] || 'Overview');
   const navItems = [
-    ['overview', 'Overview'], ['problems', 'Problems'], ['new', 'New evaluation'], ['runs', 'Run history'], ['admin', 'Admin'], ['settings', 'Settings'],
+    ['overview', 'Overview'], ['problems', 'Problems'], ['new', 'Built-in runs'], ['custom', 'My code'], ['ask', 'Ask AI'], ['runs', 'Run history'], ['admin', 'Admin'], ['settings', 'Settings'],
   ];
   const logo = () => `<svg class="brand-mark" viewBox="0 0 112 112" fill="none" aria-hidden="true"><path d="M56 7 96 30v52l-40 23L16 82V30L56 7Z" stroke="#191917" stroke-width="5" stroke-linejoin="round"/><circle cx="56" cy="56" r="8" fill="#ef583c"/></svg>`;
   const relativeDate = (value) => {
@@ -155,6 +160,8 @@
   function viewContent() {
     if (state.view === 'problems') return problemsView();
     if (state.view === 'new') return newRunView();
+    if (state.view === 'ask') return askView();
+    if (state.view === 'custom') return customView();
     if (state.view === 'runs') return runsView();
     if (state.view === 'run') return runView();
     if (state.view === 'admin') return adminView();
@@ -186,7 +193,7 @@
     const source = state.demo ? 'Demo fixture catalogue; not connected to the API.' : state.connected ? 'Live catalogue returned by the API.' : 'Showing the two built-in IDs for reference; a live catalogue has not loaded.';
     return `${heading('Problem catalogue', 'Supported problems', `${source} Search filters the currently displayed problems.`, `<label class="search-box">${icon('search')}<input aria-label="Search supported problems" id="problem-search" value="${esc(state.search)}" placeholder="Search problems" autocomplete="off" /></label>`)}
       ${matches.length ? `<div class="problem-grid">${matches.map(problemCard).join('')}</div>` : `<section class="card empty-state"><div><strong>No matching problem</strong><p>Try another search term.</p></div></section>`}
-      <p class="form-hint section-spacer">There is no endpoint for custom problems, code uploads, or user-defined inputs.</p>`;
+      <p class="form-hint section-spacer">Custom code checks use a separate, verified sandbox and currently cover one integer-sort input at a time. Arbitrary problem definitions are not supported.</p>`;
   }
 
   function problemCard(problem) {
@@ -200,6 +207,52 @@
     const alert = state.error ? `<div class="inline-alert" role="alert">${esc(state.error)}${state.retryAvailable ? ` <button class="button small" data-action="retry-run">Retry after ${Math.max(1, Number(state.retryAfter) || 1)} sec</button>` : ''}</div>` : '';
     return `${heading('Run setup', 'Start an evaluation', 'Choose one built-in problem. The API runs its predefined, bounded evaluation and stores the authoritative result.')}
       <section class="card form-card"><div class="form-section"><h2>1. Select a problem</h2><p>Only the checked-in problem IDs are accepted by the current API.</p>${problemChoices}</div><div class="form-section"><h2>2. Review the run boundary</h2><p>This request sends only the selected problem ID. No code or custom input is uploaded.</p><div class="note-box">A <strong>TESTS_PASSED</strong> result means the scheduled finite tests passed. It does not prove the claim for every possible input.</div>${alert}</div><div class="form-footer"><span>${state.busy ? `<span class="loader"><svg class="loader-mark" viewBox="0 0 112 112" fill="none"><path d="M56 7 96 30v52l-40 23L16 82V30L56 7Z" stroke="#191917" stroke-width="6" stroke-linejoin="round"/><circle cx="56" cy="56" r="9" fill="#ef583c"/></svg>${state.busyMessage || 'Submitting and checking run…'}</span>` : `<span class="form-hint">${state.demo ? 'Demo mode creates a labeled sample record only.' : state.connected ? 'The server-side proxy submits this request with its protected API key.' : 'Enable the server-side proxy in FastAPI Settings before submitting.'}</span>`}</span><button class="button primary" data-action="submit-run" ${state.busy || (!state.connected && !state.demo) ? 'disabled' : ''}>${state.busy ? 'Working…' : 'Run evaluation'} ${icon('arrow')}</button></div></section>`;
+  }
+
+  function askView() {
+    const availability = state.demo
+      ? 'Demo mode does not send questions to an AI provider.'
+      : state.qaAvailable
+        ? 'Live Gemini connection is configured on the backend.'
+        : `AI answers are unavailable: ${featureReason(state.qaReason)}.`;
+    const messages = state.qaMessages.map((item) => `<article class="qa-message"><div class="qa-question"><span class="eyebrow">You asked</span><p>${esc(item.question)}</p></div><div class="qa-answer"><span class="eyebrow">${esc(item.provider)} · ${esc(item.model)}</span><p>${esc(item.answer)}</p><small>${esc(item.disclaimer)}</small></div></article>`).join('');
+    const alert = state.qaError ? `<div class="inline-alert" role="alert">${esc(state.qaError)}</div>` : '';
+    return `${heading('General questions', 'Ask Abacus', 'Ask a general question and get a live answer from the configured AI provider.')}
+      <section class="card form-card"><form id="question-form"><div class="form-section"><h2>Your question</h2><p>${esc(availability)} Questions are sent to the configured provider only after you submit. Do not include passwords, API keys, or private data.</p>
+      <label class="form-label" for="question-text">Question</label><textarea class="input textarea" id="question-text" name="question" rows="5" maxlength="2000" placeholder="Ask a question…" required>${esc(state.questionText)}</textarea>
+      <div class="form-hint">Maximum 2,000 characters. Provider quota applies; there is no automatic paid-provider fallback.</div>${alert}</div>
+      <div class="form-footer"><span class="form-hint">${state.qaBusy ? 'Waiting for the configured AI provider…' : state.demo ? 'Demo data stays separate; no request is made.' : state.qaAvailable ? 'API key stays on the backend.' : 'Enable a provider on the backend to use live AI answers.'}</span><button class="button primary" type="submit" ${!state.connected || !state.qaAvailable || state.qaBusy || state.demo ? 'disabled' : ''}>${state.qaBusy ? 'Thinking…' : 'Ask'} ${icon('arrow')}</button></div></form></section>
+      ${messages ? `<section class="card section-spacer"><div class="card-head"><div><h2>This session</h2><p>Question history is kept in memory in this browser tab only.</p></div></div><div class="qa-history">${messages}</div></section>` : ''}`;
+  }
+
+  function customView() {
+    const availability = state.demo
+      ? 'Demo mode does not execute code.'
+      : state.customAvailable
+        ? 'Verified isolated sandbox is ready.'
+        : `Code execution is blocked: ${featureReason(state.customReason)}.`;
+    const result = state.customResult ? `<section class="card section-spacer"><div class="card-head"><div><h2>Live sandbox result</h2><p>One custom input checked against the built-in integer-sort contract.</p></div>${badge(state.customResult.outcome, outcomeClass(state.customResult.outcome))}</div><div class="card-body"><p>${esc(state.customResult.claim || state.customResult.error_category || 'The sandbox returned an evaluation result.')}</p>${state.customResult.evidence ? `<pre class="json-block">${esc(jsonText(state.customResult.evidence))}</pre>` : ''}<div class="form-hint">${esc(state.customResult.evidence?.scope || 'This is one input check, not a proof.')}</div></div></section>` : '';
+    const alert = state.customError ? `<div class="inline-alert" role="alert">${esc(state.customError)}</div>` : '';
+    return `${heading('Custom Python', 'Check your own code', 'Submit a Python function named candidate(values) and one integer-array input. Abacus compares it with the built-in ascending-sort claim.')}
+      <section class="card form-card"><form id="custom-form"><div class="form-section"><h2>Python function</h2><p>${esc(availability)} Source is sent only to the server-side API and is not saved in browser storage.</p>
+      <label class="form-label" for="custom-source">Python source</label><textarea class="input textarea code-input" id="custom-source" name="source" rows="11" spellcheck="false" autocapitalize="off" autocomplete="off">${esc(state.customSource)}</textarea>
+      <div class="form-hint">Define <code>candidate(values)</code>. The verified sandbox runs it in an isolated, network-disabled container.</div></div>
+      <div class="form-section"><h2>One input to check</h2><p>Enter a JSON array of up to 100 integers.</p><label class="form-label" for="custom-input">Integer array (JSON)</label><textarea class="input textarea code-input" id="custom-input" name="input" rows="3" spellcheck="false">${esc(state.customInput)}</textarea>${alert}</div>
+      <div class="form-footer"><span class="form-hint">${state.customBusy ? 'Running in the verified sandbox…' : state.customAvailable ? 'One input only; results are not stored as a full run.' : 'The server will refuse to run code until sandbox verification passes.'}</span><button class="button primary" type="submit" ${!state.connected || !state.customAvailable || state.customBusy || state.demo ? 'disabled' : ''}>${state.customBusy ? 'Checking…' : 'Check code'} ${icon('arrow')}</button></div></form></section>${result}`;
+  }
+
+  function featureReason(reason) {
+    return ({
+      not_connected: 'the backend is not connected',
+      qa_disabled: 'AI questions are disabled by the server operator',
+      qa_requires_gemini: 'the server is configured for a provider this free-tier pilot does not allow',
+      gemini_not_configured: 'a Gemini key is not configured on the backend',
+      execution_flag_disabled: 'server-side execution is off; verified Docker checks are also required',
+      day37_verification_not_passed: 'Docker isolation probes have not passed',
+      docker_runtime_unavailable: 'Docker Desktop is not installed or running',
+      verification_report_unavailable: 'sandbox verification report is missing',
+      verified_image_unavailable: 'the verified sandbox image is not built',
+    }[reason] || String(reason || 'server capability is unavailable'));
   }
 
   function runsView() {
@@ -250,7 +303,7 @@
     const form = state.healthChecking ? `<div class="loader" role="status">${loaderMark()} Checking the server-side proxy and API readiness…</div>` : `<div class="note-box" role="status">${esc(connectionState)}</div><div style="display:flex;gap:9px;margin-top:13px"><button class="button primary" data-action="refresh-health">${icon('refresh')} ${state.connected ? 'Refresh connection' : 'Check connection'}</button><button class="button" data-action="demo">Preview demo</button></div>`;
     return `${heading('Connection', 'Settings', 'The UI calls the allowlisted same-origin proxy; it never receives an API key or connects to the database.')}
       <div class="settings-grid"><section class="card form-card"><div class="form-section"><h2>Server-side API connection</h2><p>Configure <code>ABACUS_API_BASE_URL</code> and <code>ABACUS_API_KEY</code> in the FastAPI server environment, then enable <code>ABACUS_UI_PROXY_ENABLED=1</code> for loopback-only local use.</p>${form}</div></section>
-      <aside class="card settings-info"><h3>Security and scope</h3><ul><li>API keys never enter browser code, requests, logs, or local storage.</li><li>Database credentials remain on the backend.</li><li>The UI proxy accepts direct loopback requests only; public hosts and tunnels need separate authenticated access.</li><li>Only p01_true_sort and p02_false_sort are supported; code and custom arrays cannot be uploaded.</li></ul><h3>Evidence labels</h3><p><code>TESTS_PASSED</code> means no counterexample was found in the executed tests. It does not prove correctness.</p></aside></div>`;
+      <aside class="card settings-info"><h3>Security and scope</h3><ul><li>API keys never enter browser code, requests, logs, or local storage.</li><li>Database credentials remain on the backend.</li><li>The UI proxy accepts direct loopback requests only; public hosts and tunnels need separate authenticated access.</li><li>Built-in runs use p01_true_sort or p02_false_sort. Custom code is limited to one sort input and stays blocked until Docker isolation verification passes.</li><li>AI questions need explicit server-side opt-in and a Gemini key; no paid-provider fallback is used.</li></ul><h3>Evidence labels</h3><p><code>TESTS_PASSED</code> means no counterexample was found in the executed tests. It does not prove correctness.</p></aside></div>`;
   }
 
   function loaderMark() { return `<svg class="loader-mark" viewBox="0 0 112 112" fill="none"><path d="M56 7 96 30v52l-40 23L16 82V30L56 7Z" stroke="#191917" stroke-width="6" stroke-linejoin="round"/><circle cx="56" cy="56" r="9" fill="#ef583c"/></svg>`; }
@@ -271,6 +324,10 @@
       state.apiReady = false;
       state.connected = false;
       state.connectionError = error.message || 'Could not reach the server-side API proxy.';
+      state.qaAvailable = false;
+      state.qaReason = 'not_connected';
+      state.customAvailable = false;
+      state.customReason = 'not_connected';
     } finally {
       state.healthChecking = false;
     }
@@ -295,6 +352,18 @@
         state.adminAllowed = true;
       } catch (error) {
         state.adminForbidden = error.status === 403;
+      }
+      try {
+        const { data: capabilities } = await apiRequest('/ui-api/v1/capabilities');
+        state.qaAvailable = capabilities?.questions?.available === true;
+        state.qaReason = capabilities?.questions?.reason || (state.qaAvailable ? '' : 'qa_disabled');
+        state.customAvailable = capabilities?.custom_code?.available === true;
+        state.customReason = capabilities?.custom_code?.reason || (state.customAvailable ? '' : 'day37_verification_not_passed');
+      } catch {
+        state.qaAvailable = false;
+        state.qaReason = 'not_connected';
+        state.customAvailable = false;
+        state.customReason = 'not_connected';
       }
       state.connectionError = '';
       return true;
@@ -322,13 +391,22 @@
       const error = new Error(errorMessage(response.status, data));
       error.status = response.status;
       error.retryAfter = retryAfterSeconds(response.headers.get('Retry-After'));
-      if (response.status === 429) error.message = `Run quota reached. Retry after ${error.retryAfter} second${error.retryAfter === 1 ? '' : 's'}.`;
+      if (response.status === 429 && path.includes('/v1/runs')) error.message = `Run quota reached. Retry after ${error.retryAfter} second${error.retryAfter === 1 ? '' : 's'}.`;
       throw error;
     }
     return { response, data };
   }
 
   function errorMessage(status, data) {
+    if (data?.detail && typeof data.detail === 'object') {
+      const detail = data.detail;
+      if (detail.code === 'qa_disabled') return 'AI questions are disabled on the backend.';
+      if (detail.code === 'gemini_not_configured') return 'A Gemini API key is not configured on the backend.';
+      if (detail.code === 'qa_requires_gemini') return 'This pilot does not fall back to a paid AI provider.';
+      if (detail.code === 'day37_verification_not_passed') return 'Custom code was not run: Docker sandbox verification has not passed.';
+      if (detail.code === 'execution_flag_disabled') return 'Custom code execution is disabled by the backend operator.';
+      if (detail.message) return detail.message;
+    }
     if (status === 401) return 'The backend rejected its server-side API key. Check the FastAPI host configuration.';
     if (status === 403) return 'This server-side API key does not have permission for that page or action.';
     if (status === 404) return 'The run or problem could not be found for this API key.';
@@ -501,12 +579,70 @@
     finally { state.busy = false; state.busyMessage = ''; render(); }
   }
 
+  async function submitQuestion() {
+    if (state.qaBusy || !state.connected || !state.qaAvailable || state.demo) return;
+    const question = state.questionText.trim();
+    if (!question) { state.qaError = 'Enter a question first.'; render(); return; }
+    state.qaBusy = true;
+    state.qaError = '';
+    render();
+    try {
+      const { data } = await apiRequest('/ui-api/v1/questions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question }),
+      });
+      if (!data?.answer || data.provider_api_called !== true) throw new Error('The API did not return a live AI answer.');
+      state.qaMessages.push({ question, answer: data.answer, provider: data.provider, model: data.model, disclaimer: data.disclaimer });
+      state.questionText = '';
+    } catch (error) {
+      state.qaError = error.message || 'The AI provider did not return an answer.';
+    } finally {
+      state.qaBusy = false;
+      render();
+    }
+  }
+
+  async function submitCustomCheck() {
+    if (state.customBusy || !state.connected || !state.customAvailable || state.demo) return;
+    let values;
+    try {
+      values = JSON.parse(state.customInput);
+      if (!Array.isArray(values) || values.length > 100 || !values.every(Number.isSafeInteger)) {
+        throw new Error('Input must be a JSON array of up to 100 safe integers.');
+      }
+    } catch (error) {
+      state.customError = error.message || 'Enter a valid JSON integer array.';
+      render();
+      return;
+    }
+    state.customBusy = true;
+    state.customError = '';
+    state.customResult = null;
+    render();
+    try {
+      const { data } = await apiRequest('/ui-api/v1/custom-checks', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ source: state.customSource, input: values }),
+      });
+      state.customResult = data;
+    } catch (error) {
+      state.customError = error.message || 'The sandbox did not return a result.';
+    } finally {
+      state.customBusy = false;
+      render();
+    }
+  }
+
   function enterDemo() {
     state.connected = false;
     state.demo = true;
     state.apiReady = null;
     state.clients = null;
     state.adminAllowed = false;
+    state.qaAvailable = false;
+    state.customAvailable = false;
     state.connectionError = '';
     state.problems = [...builtInProblems];
     state.search = '';
@@ -584,7 +720,20 @@
     }
   });
 
+  document.addEventListener('submit', async (event) => {
+    if (event.target.id === 'question-form') {
+      event.preventDefault();
+      await submitQuestion();
+    } else if (event.target.id === 'custom-form') {
+      event.preventDefault();
+      await submitCustomCheck();
+    }
+  });
+
   document.addEventListener('input', (event) => {
+    if (event.target.id === 'question-text') state.questionText = event.target.value;
+    if (event.target.id === 'custom-source') state.customSource = event.target.value;
+    if (event.target.id === 'custom-input') state.customInput = event.target.value;
     if (event.target.id === 'problem-search' || event.target.id === 'runs-search') {
       const position = event.target.selectionStart;
       state.search = event.target.value;

@@ -172,6 +172,14 @@ tbody tr:hover { background: #fdfcfb; }
 .form-section > p { margin: 0 0 15px; color: var(--muted); font-size: 11px; line-height: 1.55; }
 .form-label { display: block; margin: 0 0 7px; color: #55534d; font-size: 11px; font-weight: 600; }
 .input { width: 100%; min-height: 39px; padding: 9px 11px; border: 1px solid var(--line-strong); border-radius: 5px; background: #fff; color: var(--ink); font-size: 12px; }
+.textarea { display: block; min-height: 110px; resize: vertical; line-height: 1.6; }
+.code-input { font-family: var(--mono); font-size: 11px; tab-size: 4; }
+.qa-history { display: grid; gap: 16px; padding: 18px 20px; }
+.qa-message { display: grid; gap: 10px; max-width: 760px; }
+.qa-question, .qa-answer { padding: 14px 16px; border: 1px solid var(--line); border-radius: 7px; background: var(--paper-soft); }
+.qa-answer { background: var(--paper); }
+.qa-message p { margin: 7px 0 0; color: var(--ink); font-size: 12px; line-height: 1.7; white-space: pre-wrap; overflow-wrap: anywhere; }
+.qa-message small { display: block; margin-top: 9px; color: var(--muted); font-size: 10px; }
 .input::placeholder { color: #aaa79f; }
 .input.mono { font-size: 11px; }
 .form-hint { margin-top: 7px; color: var(--muted); font-size: 10px; line-height: 1.55; }
