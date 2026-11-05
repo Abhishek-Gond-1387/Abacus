@@ -55,10 +55,10 @@
   ];
 
   const state = {
-    view: 'overview', problems: [...builtInProblems], apiReady: null, connectionError: '', connected: false,
+    view: 'ask', problems: [...builtInProblems], apiReady: null, connectionError: '', connected: false,
     demo: false, search: '', currentRun: null, nextPollAt: 0, busy: false, error: '', clients: null,
-    adminAllowed: false, adminForbidden: false, healthChecking: false,
-    qaAvailable: false, qaReason: 'not_connected', qaBusy: false, qaError: '', qaMessages: [], questionText: '',
+    adminAllowed: false, adminForbidden: false, adminLoadError: '', healthChecking: false,
+    qaAvailable: false, qaStatusKnown: false, qaReason: 'not_connected', qaBusy: false, qaError: '', qaMessages: [], questionText: '',
     customAvailable: false, customReason: 'not_connected', customBusy: false, customError: '', customResult: null,
     customSource: 'def candidate(values):\n    return sorted(values)\n', customInput: '[]',
     theme: localStorage.getItem(STORE.theme) || 'light',
@@ -89,7 +89,7 @@
   const problemFor = (id) => state.problems.find((problem) => problem.problem_id === id) || builtInProblems.find((problem) => problem.problem_id === id) || { problem_id: id, claim: 'Supported evaluation problem' };
   const titleFor = (view) => ({ overview: 'Overview', problems: 'Problems', new: 'New evaluation', ask: 'Ask AI', custom: 'My code', runs: 'Run history', run: 'Run details', admin: 'Admin', settings: 'Settings' }[view] || 'Overview');
   const navItems = [
-    ['overview', 'Overview'], ['problems', 'Problems'], ['new', 'Built-in runs'], ['custom', 'My code'], ['ask', 'Ask AI'], ['runs', 'Run history'], ['admin', 'Admin'], ['settings', 'Settings'],
+    ['ask', 'Ask Abacus'], ['custom', 'My code'], ['new', 'Evaluations'], ['runs', 'Run history'], ['problems', 'Problems'], ['overview', 'Overview'], ['admin', 'Admin'], ['settings', 'Settings'],
   ];
   const logo = () => `<svg class="brand-mark" viewBox="0 0 112 112" fill="none" aria-hidden="true"><path d="M56 7 96 30v52l-40 23L16 82V30L56 7Z" stroke="#191917" stroke-width="5" stroke-linejoin="round"/><circle cx="56" cy="56" r="8" fill="#ef583c"/></svg>`;
   const relativeDate = (value) => {
@@ -122,18 +122,20 @@
 
   function render() {
     document.body.classList.toggle('dark', state.theme === 'dark');
+    document.body.classList.toggle('chat-active', state.view === 'ask');
     const connectionText = state.demo ? 'Demo data' : state.connected ? 'API connected' : state.apiReady === false ? 'API unavailable' : 'Checking API';
     const connectionState = state.demo ? 'demo' : state.connected ? 'ready' : state.apiReady === false ? 'error' : '';
     app.innerHTML = `
-      <div class="shell">
+      <div class="shell ${state.view === 'ask' ? 'chat-shell' : ''}">
         <aside class="sidebar">
-          <a class="brand ${introPending ? 'logo-intro' : ''}" href="#overview" aria-label="Abacus overview">${logo()}<span class="brand-word">ABACUS</span></a>
+          <a class="brand ${introPending ? 'logo-intro' : ''}" href="#ask" aria-label="Abacus home">${logo()}<span class="brand-word">ABACUS</span></a>
+          <button type="button" class="new-chat-button" data-action="new-chat">${icon('new')}<span>New chat</span><kbd>Ctrl K</kbd></button>
           <div class="nav-label">Workspace</div>
           <nav class="nav" aria-label="Main navigation">
-            ${navItems.filter(([key]) => key !== 'admin' || (state.connected && state.adminAllowed && !state.demo)).map(([key, label]) => `<button type="button" class="nav-button ${state.view === key || (state.view === 'run' && key === 'runs') ? 'active' : ''}" data-view="${key}" aria-label="${label}">${icon(key)}<span>${label}</span></button>`).join('')}
+            ${navItems.filter(([key]) => key !== 'admin' || (state.connected && !state.adminForbidden && !state.demo)).map(([key, label]) => `<button type="button" class="nav-button ${state.view === key || (state.view === 'run' && key === 'runs') ? 'active' : ''}" data-view="${key}" aria-label="${label}">${icon(key)}<span>${label}</span></button>`).join('')}
           </nav>
           <div class="sidebar-bottom">
-            <div class="pilot-note"><div class="pilot-note-title"><i class="pilot-dot"></i>Focused pilot</div><p>Two built-in sorting problems. Finite test results are evidence, not a proof.</p></div>
+            <div class="pilot-note"><div class="pilot-note-title"><i class="pilot-dot"></i>Abacus workspace</div><p>Ask questions, inspect Python claims, and review the evidence.</p></div>
             <div class="profile"><div class="profile-icon">A</div><div class="profile-copy"><div class="profile-name">Abacus operator</div><div class="profile-state">${state.connected ? 'Connected for this tab' : state.demo ? 'Preview mode' : 'Local workspace'}</div></div></div>
           </div>
         </aside>
@@ -142,7 +144,7 @@
             <div class="breadcrumbs"><span>Abacus</span><span class="crumb-sep">/</span><strong class="crumb-current">${esc(titleFor(state.view))}</strong></div>
             <div class="top-actions"><span class="connection"><i class="status-dot ${connectionState}"></i>${esc(connectionText)}</span><button class="theme-toggle" data-action="theme" type="button" aria-label="Toggle dark mode">${icon('moon')}</button></div>
           </header>
-          <main class="content" id="main-content">${state.demo ? demoBanner() : ''}${viewContent()}</main>
+          <main class="content ${state.view === 'ask' ? 'chat-content' : ''}" id="main-content">${state.demo ? demoBanner() : ''}${viewContent()}</main>
         </div>
       </div><div id="toast-slot" aria-live="polite"></div>`;
     introPending = false;
@@ -213,16 +215,24 @@
     const availability = state.demo
       ? 'Demo mode does not send questions to an AI provider.'
       : state.qaAvailable
-        ? 'Live Gemini connection is configured on the backend.'
-        : `AI answers are unavailable: ${featureReason(state.qaReason)}.`;
-    const messages = state.qaMessages.map((item) => `<article class="qa-message"><div class="qa-question"><span class="eyebrow">You asked</span><p>${esc(item.question)}</p></div><div class="qa-answer"><span class="eyebrow">${esc(item.provider)} · ${esc(item.model)}</span><p>${esc(item.answer)}</p><small>${esc(item.disclaimer)}</small></div></article>`).join('');
-    const alert = state.qaError ? `<div class="inline-alert" role="alert">${esc(state.qaError)}</div>` : '';
-    return `${heading('General questions', 'Ask Abacus', 'Ask a general question and get a live answer from the configured AI provider.')}
-      <section class="card form-card"><form id="question-form"><div class="form-section"><h2>Your question</h2><p>${esc(availability)} Questions are sent to the configured provider only after you submit. Do not include passwords, API keys, or private data.</p>
-      <label class="form-label" for="question-text">Question</label><textarea class="input textarea" id="question-text" name="question" rows="5" maxlength="2000" placeholder="Ask a question…" required>${esc(state.questionText)}</textarea>
-      <div class="form-hint">Maximum 2,000 characters. Provider quota applies; there is no automatic paid-provider fallback.</div>${alert}</div>
-      <div class="form-footer"><span class="form-hint">${state.qaBusy ? 'Waiting for the configured AI provider…' : state.demo ? 'Demo data stays separate; no request is made.' : state.qaAvailable ? 'API key stays on the backend.' : 'Enable a provider on the backend to use live AI answers.'}</span><button class="button primary" type="submit" ${!state.connected || !state.qaAvailable || state.qaBusy || state.demo ? 'disabled' : ''}>${state.qaBusy ? 'Thinking…' : 'Ask'} ${icon('arrow')}</button></div></form></section>
-      ${messages ? `<section class="card section-spacer"><div class="card-head"><div><h2>This session</h2><p>Question history is kept in memory in this browser tab only.</p></div></div><div class="qa-history">${messages}</div></section>` : ''}`;
+        ? 'Gemini is ready on the backend.'
+        : `AI is ${state.connected ? featureReason(state.qaReason) : 'connecting to the backend'}.`;
+    const messages = state.qaMessages.map((item) => `<article class="chat-turn" data-turn-id="${esc(item.id)}">
+      <div class="chat-user"><div class="chat-avatar user-avatar">A</div><div class="chat-user-text">${esc(item.question)}</div></div>
+      <div class="chat-assistant"><div class="chat-avatar assistant-avatar">${logo()}</div><div class="chat-assistant-body"><div class="chat-answer" data-answer-id="${esc(item.id)}">${esc(item.answer || '')}</div>
+      ${item.pending ? `<div class="thinking-line"><span>${item.answer ? 'Writing' : 'Thinking'}</span><i></i><i></i><i></i></div>` : ''}
+      ${item.error ? `<div class="chat-error">${esc(item.error)}</div>` : ''}
+      ${item.disclaimer ? `<div class="chat-meta">${esc(item.provider)} · ${esc(item.model)} <span>·</span> ${esc(item.disclaimer)}</div>` : ''}</div></div></article>`).join('');
+    const welcome = state.qaMessages.length ? '' : `<section class="chat-welcome"><div class="welcome-orbit">${logo()}</div><div class="eyebrow">Your thinking workspace</div><h1>What can I help you with?</h1><p>Ask a question, explore an idea, or get help understanding code.</p>
+      <div class="suggestion-row"><button type="button" class="suggestion-chip" data-prompt="Explain how Abacus checks a Python claim">How Abacus works</button><button type="button" class="suggestion-chip" data-prompt="Help me understand a Python error">Understand a Python error</button><button type="button" class="suggestion-chip" data-prompt="Explain an idea in simple terms">Explain an idea</button></div></section>`;
+    const error = state.qaError ? `<div class="chat-error-banner" role="alert">${esc(state.qaError)}</div>` : '';
+    const composerDisabled = !state.connected || state.qaBusy || state.demo || (state.qaStatusKnown && !state.qaAvailable);
+    const composerInputDisabled = state.qaBusy || state.demo;
+    return `<section class="chat-workspace">
+      <div class="chat-toolbar"><div><span class="chat-mode-mark">${logo()}</span><div><strong>Ask Abacus</strong><small>${esc(availability)} · Gemini answers stream as they arrive</small></div></div><button type="button" class="button ghost small" data-action="new-chat">${icon('new')} New chat</button></div>
+      <div class="chat-transcript" id="chat-transcript" role="log" aria-live="off">${welcome}${messages}</div>
+      <div class="chat-compose-area">${error}<form class="chat-composer" id="question-form"><textarea id="question-text" name="question" rows="1" maxlength="2000" placeholder="Ask anything…" aria-label="Your message" required ${composerInputDisabled ? 'disabled' : ''}>${esc(state.questionText)}</textarea><div class="composer-bottom"><span class="composer-note">${state.qaBusy ? `<span class="live-indicator"><i></i> Answering…</span>` : state.qaAvailable ? 'Enter to send · Shift + Enter for a new line' : state.qaReason === 'checking_capabilities' ? 'Checking AI status · you can ask while it loads' : state.qaReason === 'capabilities_unavailable' ? 'Status check timed out · sending verifies live access' : 'Live answers need the server provider to be enabled.'}</span><button class="send-button" type="submit" aria-label="Send message" ${composerDisabled || !state.questionText.trim() ? 'disabled' : ''}>${state.qaBusy ? '<span class="send-spinner"></span>' : icon('arrow')}</button></div></form><p class="chat-disclaimer">AI can make mistakes. Don’t include private keys or sensitive information.</p></div>
+    </section>`;
   }
 
   function customView() {
@@ -247,6 +257,8 @@
       qa_disabled: 'AI questions are disabled by the server operator',
       qa_requires_gemini: 'the server is configured for a provider this free-tier pilot does not allow',
       gemini_not_configured: 'a Gemini key is not configured on the backend',
+      checking_capabilities: 'checking the backend feature status',
+      capabilities_unavailable: 'the backend feature status could not be loaded',
       execution_flag_disabled: 'server-side execution is off; verified Docker checks are also required',
       day37_verification_not_passed: 'Docker isolation probes have not passed',
       docker_runtime_unavailable: 'Docker Desktop is not installed or running',
@@ -293,6 +305,7 @@
     if (state.demo) return `${heading('Access-controlled', 'Admin overview', 'Admin policy and usage are never simulated in demo mode.')}<section class="card empty-state"><div><strong>No demo admin data</strong><p>Exit demo mode to view client limits and usage returned by the server-side API proxy.</p></div></section>`;
     if (!state.connected) return `${heading('Access-controlled', 'Admin overview', 'This read-only page requires an admin API key.')}<section class="card empty-state"><div><strong>Connect as an administrator</strong><p>Configure the server-side API key on the FastAPI host. The API determines its role.</p><button class="button" data-view="settings">Open settings</button></div></section>`;
     if (state.adminForbidden) return `${heading('Access-controlled', 'Admin overview', 'This read-only page requires an admin API key.')}<section class="card empty-state"><div><strong>Admin access required</strong><p>The connected API key does not have permission to list client policies.</p></div></section>`;
+    if (state.adminLoadError) return `${heading('Access-controlled', 'Admin overview', 'Read-only client policy and aggregate quota usage from the API.')}<section class="card empty-state"><div><strong>Admin data could not be loaded</strong><p>${esc(state.adminLoadError)}</p><button class="button small" data-action="refresh-admin">${icon('refresh')} Try again</button></div></section>`;
     if (!state.clients) return `${heading('Access-controlled', 'Admin overview', 'Read-only client policy and aggregate quota usage from the API.')}<section class="card empty-state"><div><span class="loader">${loaderMark()} Loading admin data…</span></div></section>`;
     return `${heading('Access-controlled', 'Admin overview', 'Client roles, limits, and current usage returned by the API. Keys are never included.', `<button class="button small" data-action="refresh-admin">${icon('refresh')} Refresh</button>`)}
       ${state.clients.length ? `<div class="admin-grid">${state.clients.map((client) => `<article class="card admin-client"><h3>${esc(client.client_id)}</h3><div class="admin-row"><span>Role</span><strong>${esc(client.role)}</strong></div><div class="admin-row"><span>Active</span><strong>${client.is_active ? 'Yes' : 'No'}</strong></div><div class="admin-row"><span>Daily limit</span><strong>${esc(client.daily_run_limit)}</strong></div><div class="admin-row"><span>Runs today</span><strong>${esc(client.runs_today)}</strong></div><div class="admin-row"><span>Active runs</span><strong>${esc(client.active_runs)} / ${esc(client.max_active_runs)}</strong></div></article>`).join('')}</div>` : `<section class="card empty-state"><div><strong>No API clients configured</strong><p>The API returned an empty client list.</p></div></section>`}`;
@@ -337,35 +350,30 @@
   async function connectServerProxy() {
     state.connectionError = '';
     try {
-      const { response: health } = await apiRequest('/ui-api/health/ready');
+      const connectSignal = AbortSignal.timeout(8000);
+      const [healthResult, problemsResult] = await Promise.allSettled([
+        apiRequest('/ui-api/health/ready', { signal: connectSignal }),
+        apiRequest('/ui-api/v1/problems', { signal: connectSignal }),
+      ]);
+      if (healthResult.status === 'rejected') throw healthResult.reason;
+      if (problemsResult.status === 'rejected') throw problemsResult.reason;
+      const { response: health } = healthResult.value;
       state.apiReady = health.ok;
-      const { data: problems } = await apiRequest('/ui-api/v1/problems');
+      const { data: problems } = problemsResult.value;
       if (!Array.isArray(problems) || problems.length !== 2) throw new Error('The API did not return its two supported built-in problems.');
       state.problems = problems;
       state.connected = true;
       state.adminAllowed = false;
       state.adminForbidden = false;
       state.clients = null;
-      try {
-        const { data: clients } = await apiRequest('/ui-api/v1/admin/clients');
-        state.clients = Array.isArray(clients) ? clients : [];
-        state.adminAllowed = true;
-      } catch (error) {
-        state.adminForbidden = error.status === 403;
-      }
-      try {
-        const { data: capabilities } = await apiRequest('/ui-api/v1/capabilities');
-        state.qaAvailable = capabilities?.questions?.available === true;
-        state.qaReason = capabilities?.questions?.reason || (state.qaAvailable ? '' : 'qa_disabled');
-        state.customAvailable = capabilities?.custom_code?.available === true;
-        state.customReason = capabilities?.custom_code?.reason || (state.customAvailable ? '' : 'day37_verification_not_passed');
-      } catch {
-        state.qaAvailable = false;
-        state.qaReason = 'not_connected';
-        state.customAvailable = false;
-        state.customReason = 'not_connected';
-      }
+      state.adminLoadError = '';
+      state.qaAvailable = false;
+      state.qaStatusKnown = false;
+      state.qaReason = 'checking_capabilities';
+      state.customAvailable = false;
+      state.customReason = 'checking_capabilities';
       state.connectionError = '';
+      void loadCapabilities();
       return true;
     } catch (error) {
       state.connected = false;
@@ -374,6 +382,26 @@
       state.connectionError = error.message || 'Could not reach the configured Abacus API.';
       return false;
     }
+  }
+
+  async function loadCapabilities() {
+    try {
+      const { data } = await apiRequest('/ui-api/v1/capabilities', { signal: AbortSignal.timeout(8000) });
+      if (!state.connected || state.demo) return;
+      state.qaAvailable = data?.questions?.available === true;
+      state.qaStatusKnown = true;
+      state.qaReason = data?.questions?.reason || (state.qaAvailable ? '' : 'qa_disabled');
+      state.customAvailable = data?.custom_code?.available === true;
+      state.customReason = data?.custom_code?.reason || (state.customAvailable ? '' : 'day37_verification_not_passed');
+    } catch {
+      if (!state.connected || state.demo) return;
+      state.qaAvailable = false;
+      state.qaStatusKnown = false;
+      state.qaReason = 'capabilities_unavailable';
+      state.customAvailable = false;
+      state.customReason = 'capabilities_unavailable';
+    }
+    if (state.view !== 'run') render();
   }
 
   async function readJson(response) {
@@ -423,13 +451,14 @@
     if (!state.connected || state.demo) return;
     state.clients = null;
     state.adminForbidden = false;
+    state.adminLoadError = '';
     render();
     try {
       const { data } = await apiRequest('/ui-api/v1/admin/clients');
       state.clients = Array.isArray(data) ? data : [];
     } catch (error) {
-      if (error.status === 403) { state.adminForbidden = true; state.adminAllowed = false; }
-      else toast(error.message, 'error');
+      if (error.status === 401 || error.status === 403) { state.adminForbidden = true; state.adminAllowed = false; }
+      else state.adminLoadError = error.message || 'The admin endpoint could not be reached.';
     }
     render();
   }
@@ -580,27 +609,98 @@
   }
 
   async function submitQuestion() {
-    if (state.qaBusy || !state.connected || !state.qaAvailable || state.demo) return;
+    if (state.qaBusy || !state.connected || (state.qaStatusKnown && !state.qaAvailable) || state.demo) return;
     const question = state.questionText.trim();
     if (!question) { state.qaError = 'Enter a question first.'; render(); return; }
+    const message = {
+      id: globalThis.crypto?.randomUUID ? crypto.randomUUID() : `turn-${Date.now()}`,
+      question,
+      answer: '',
+      pending: true,
+    };
+    state.qaMessages.push(message);
     state.qaBusy = true;
     state.qaError = '';
+    state.questionText = '';
     render();
+    document.getElementById('question-text')?.focus();
+    scrollChatToBottom();
     try {
-      const { data } = await apiRequest('/ui-api/v1/questions', {
+      const response = await fetch('/ui-api/v1/questions/stream', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Accept': 'text/event-stream', 'Content-Type': 'application/json' },
+        cache: 'no-store',
         body: JSON.stringify({ question }),
       });
-      if (!data?.answer || data.provider_api_called !== true) throw new Error('The API did not return a live AI answer.');
-      state.qaMessages.push({ question, answer: data.answer, provider: data.provider, model: data.model, disclaimer: data.disclaimer });
-      state.questionText = '';
+      if (!response.ok) {
+        const data = await readJson(response);
+        throw new Error(errorMessage(response.status, data));
+      }
+      if (!response.body) throw new Error('This browser cannot stream the AI response.');
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      let finished = false;
+      let streamError = null;
+      const consumeFrame = (frame) => {
+        let eventName = 'message';
+        const dataLines = [];
+        for (const line of frame.split(/\r?\n/)) {
+          if (line.startsWith('event:')) eventName = line.slice(6).trim();
+          else if (line.startsWith('data:')) dataLines.push(line.slice(5).trimStart());
+        }
+        if (!dataLines.length) return;
+        const payload = JSON.parse(dataLines.join('\n'));
+        if (eventName === 'token' && typeof payload === 'string') {
+          message.answer += payload;
+          const answerNode = document.querySelector(`[data-answer-id="${message.id}"]`);
+          if (answerNode) answerNode.textContent = message.answer;
+          scrollChatToBottom();
+        } else if (eventName === 'done') {
+          message.provider = payload.provider;
+          message.model = payload.model;
+          message.disclaimer = payload.disclaimer;
+          finished = payload.provider_api_called === true;
+        } else if (eventName === 'error') {
+          streamError = new Error(payload.message || 'The AI provider did not finish the response.');
+        }
+      };
+      try {
+        while (true) {
+          const { value, done } = await reader.read();
+          buffer += decoder.decode(value || new Uint8Array(), { stream: !done });
+          let boundary;
+          while ((boundary = buffer.indexOf('\n\n')) >= 0) {
+            const frame = buffer.slice(0, boundary);
+            buffer = buffer.slice(boundary + 2);
+            consumeFrame(frame);
+          }
+          if (done) break;
+          if (streamError || finished) {
+            await reader.cancel();
+            break;
+          }
+        }
+      } finally {
+        reader.releaseLock();
+      }
+      if (streamError) throw streamError;
+      if (!finished) throw new Error('The stream ended before the provider confirmed a complete answer.');
     } catch (error) {
-      state.qaError = error.message || 'The AI provider did not return an answer.';
+      message.error = error.message || 'The AI provider did not return an answer.';
+      state.qaError = message.error;
     } finally {
+      message.pending = false;
       state.qaBusy = false;
       render();
+      document.getElementById('question-text')?.focus();
+      scrollChatToBottom();
     }
+  }
+
+  function scrollChatToBottom() {
+    const transcript = document.getElementById('chat-transcript');
+    if (transcript) transcript.scrollTop = transcript.scrollHeight;
   }
 
   async function submitCustomCheck() {
@@ -665,6 +765,18 @@
   }
 
   document.addEventListener('click', async (event) => {
+    const promptButton = event.target.closest('[data-prompt]');
+    if (promptButton) {
+      state.questionText = promptButton.dataset.prompt || '';
+      render();
+      const composer = document.getElementById('question-text');
+      composer?.focus();
+      if (composer) {
+        composer.style.height = 'auto';
+        composer.style.height = `${Math.min(composer.scrollHeight, 180)}px`;
+      }
+      return;
+    }
     const viewButton = event.target.closest('[data-view]');
     if (viewButton) {
       state.search = '';
@@ -683,6 +795,13 @@
       state.theme = state.theme === 'dark' ? 'light' : 'dark';
       localStorage.setItem(STORE.theme, state.theme);
       render();
+    } else if (action === 'new-chat') {
+      state.qaMessages = [];
+      state.qaError = '';
+      state.questionText = '';
+      state.view = 'ask';
+      render();
+      document.getElementById('question-text')?.focus();
     } else if (action === 'refresh-health') {
       if (state.demo) {
         toast('Demo mode shows sample status only; no API request was made.');
@@ -731,7 +850,13 @@
   });
 
   document.addEventListener('input', (event) => {
-    if (event.target.id === 'question-text') state.questionText = event.target.value;
+    if (event.target.id === 'question-text') {
+      state.questionText = event.target.value;
+      event.target.style.height = 'auto';
+      event.target.style.height = `${Math.min(event.target.scrollHeight, 180)}px`;
+      const sendButton = document.querySelector('#question-form .send-button');
+      if (sendButton) sendButton.disabled = !state.questionText.trim() || !state.connected || (state.qaStatusKnown && !state.qaAvailable) || state.qaBusy || state.demo;
+    }
     if (event.target.id === 'custom-source') state.customSource = event.target.value;
     if (event.target.id === 'custom-input') state.customInput = event.target.value;
     if (event.target.id === 'problem-search' || event.target.id === 'runs-search') {
@@ -742,6 +867,20 @@
       const replacement = document.getElementById(event.target.id);
       if (replacement) { replacement.focus(); replacement.setSelectionRange(position, position); }
       if (state.view !== view) state.view = view;
+    }
+  });
+
+  document.addEventListener('keydown', (event) => {
+    if (event.target.id === 'question-text' && event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
+      event.preventDefault();
+      const sendButton = document.querySelector('#question-form .send-button');
+      if (sendButton && !sendButton.disabled) document.getElementById('question-form')?.requestSubmit();
+    }
+    if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k' && !event.altKey) {
+      event.preventDefault();
+      state.view = 'ask';
+      render();
+      document.getElementById('question-text')?.focus();
     }
   });
 

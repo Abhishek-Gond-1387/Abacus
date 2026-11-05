@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import os
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Iterator, Protocol
 
 from .prompts import MAX_MODEL_PROMPT_BYTES
 from .schemas import (
@@ -75,6 +75,17 @@ class LLMClient(Protocol):
         system_message: str | None = None,
     ) -> str:
         """Return an untrusted provider response as text."""
+        ...
+
+    def stream(
+        self,
+        prompt: str,
+        *,
+        model_id: str,
+        max_output_tokens: int = MAX_OUTPUT_TOKENS,
+        system_message: str | None = None,
+    ) -> Iterator[str]:
+        """Yield untrusted response text in provider chunks."""
         ...
 
 
@@ -219,6 +230,103 @@ class OpenAICompatibleLLMClient:
                 f"Provider response exceeds the {MAX_MODEL_OUTPUT_BYTES}-byte limit."
             )
         return response_text
+
+    def stream(
+        self,
+        prompt: str,
+        *,
+        model_id: str,
+        max_output_tokens: int = MAX_OUTPUT_TOKENS,
+        system_message: str | None = None,
+    ) -> Iterator[str]:
+        """Yield provider text chunks while enforcing the same request/output bounds."""
+        _validate_prompt(prompt)
+        _validate_model_id(model_id)
+        if type(max_output_tokens) is not int or not 1 <= max_output_tokens <= MAX_OUTPUT_TOKENS:
+            raise ValueError(f"max_output_tokens must be between 1 and {MAX_OUTPUT_TOKENS}.")
+        if system_message is not None:
+            if type(system_message) is not str:
+                raise ValueError("system_message must be a string or None.")
+            _validate_prompt(system_message)
+
+        try:
+            from openai import (
+                APIConnectionError,
+                APIError,
+                APIStatusError,
+                AuthenticationError,
+                BadRequestError,
+                RateLimitError,
+            )
+        except ImportError:
+            raise LLMNotConfiguredError(
+                "The OpenAI-compatible SDK is missing. Install the runtime requirements first."
+            ) from None
+
+        request: dict[str, Any] = {
+            "model": model_id.strip(),
+            "messages": ([{"role": "system", "content": system_message}] if system_message else [])
+            + [{"role": "user", "content": prompt}],
+            "stream": True,
+        }
+        request["max_tokens" if self._provider == "gemini" else "max_completion_tokens"] = max_output_tokens
+        response_stream = None
+        total_bytes = 0
+        saw_text = False
+        try:
+            response_stream = self._client.chat.completions.create(**request)
+            for chunk in response_stream:
+                choices = getattr(chunk, "choices", None)
+                delta = getattr(choices[0], "delta", None) if choices else None
+                text = getattr(delta, "content", None)
+                if not isinstance(text, str) or not text:
+                    continue
+                try:
+                    chunk_bytes = len(text.encode("utf-8"))
+                except UnicodeEncodeError:
+                    raise LLMProviderResponseError("Provider response is not valid UTF-8 text.") from None
+                total_bytes += chunk_bytes
+                if total_bytes > MAX_MODEL_OUTPUT_BYTES:
+                    raise LLMProviderResponseTooLargeError(
+                        f"Provider response exceeds the {MAX_MODEL_OUTPUT_BYTES}-byte limit."
+                    )
+                saw_text = True
+                yield text
+            if not saw_text:
+                raise LLMProviderResponseError("Provider returned no text response.")
+        except AuthenticationError:
+            raise LLMProviderAuthenticationError(
+                "Provider authentication failed. Check the configured API key."
+            ) from None
+        except RateLimitError:
+            raise LLMProviderRateLimitError(
+                "Provider quota or request rate limit was reached."
+            ) from None
+        except APIConnectionError:
+            raise LLMProviderConnectionError(
+                "Provider connection failed or timed out."
+            ) from None
+        except BadRequestError:
+            raise LLMProviderRequestError(
+                "Provider rejected the request. Check the configured model and request."
+            ) from None
+        except APIStatusError as error:
+            status_code = getattr(error, "status_code", None)
+            if type(status_code) is int:
+                raise LLMProviderRequestError(
+                    f"Provider request failed with HTTP {status_code}."
+                ) from None
+            raise LLMProviderRequestError("Provider request failed.") from None
+        except APIError:
+            raise LLMProviderError("Provider request failed.") from None
+        finally:
+            close = getattr(response_stream, "close", None)
+            if callable(close):
+                try:
+                    close()
+                except Exception:
+                    # A cleanup failure must not mask the provider result or its error.
+                    pass
 
     def close(self) -> None:
         """Close the SDK's HTTP client when the caller is finished."""
